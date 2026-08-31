@@ -42,9 +42,11 @@ export function normalizeGitRemote(value: string): string {
     path = url.pathname.replace(/^\//, "");
   }
   const parts = path.split("/");
-  if (!host || parts.length !== 2 || parts.some((part) => !part))
+  if (!host || parts.length < 2 || parts.some((part) => !part))
     throw new ConfigurationError(`Unsupported git remote: ${value}`);
-  return `${host.toLowerCase()}/${parts[0]?.toLowerCase()}/${parts[1]?.toLowerCase()}`;
+  return `${host.toLowerCase()}/${parts
+    .map((part) => part.toLowerCase())
+    .join("/")}`;
 }
 
 function expectedIdentity(identity: RepositoryIdentity): string {

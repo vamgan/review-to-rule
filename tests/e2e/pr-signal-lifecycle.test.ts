@@ -172,6 +172,8 @@ const fs = require("node:fs");
 const args = process.argv.slice(2);
 if (process.env.RTR_GH_CALL_LOG) fs.appendFileSync(process.env.RTR_GH_CALL_LOG, JSON.stringify(args) + "\\n");
 const mode = process.env.RTR_GH_LIST_MODE;
+const fakeShortToken = ["gh", "p_", "maliciousToken123456789"].join("");
+const fakeFineGrainedToken = ["github", "_pat_", "maliciousToken123456789"].join("");
 if (args[0] === "pr" && args[1] === "list" && mode === "object") process.stdout.write("{}\\n");
 else if (args[0] === "pr" && args[1] === "list" && mode === "null") process.stdout.write("null\\n");
 else if (args[0] === "pr" && args[1] === "list" && mode === "string") process.stdout.write('"existing"\\n');
@@ -181,8 +183,8 @@ else if (args[0] === "pr" && args[1] === "list" && mode === "wrong-fields") proc
 else if (args[0] === "pr" && args[1] === "list" && mode === "unexpected-fields") process.stdout.write(JSON.stringify([{url:"https://github.com/acme/clock/pull/9",state:"OPEN",headRefName:"branch",unexpected:true}]) + "\\n");
 else if (args[0] === "pr" && args[1] === "list" && mode === "malformed") process.stdout.write("[{\\n");
 else if (args[0] === "pr" && args[1] === "list" && mode === "oversized") process.stdout.write(" ".repeat(65537) + "[]");
-else if (args[0] === "pr" && args[1] === "list" && mode === "multiline-token") process.stdout.write('[\\n{"url":"ghp_maliciousToken123456789","state":"OPEN","headRefName":"branch"}\\n]\\n');
-else if (args[0] === "pr" && args[1] === "list" && mode === "auth-token") { process.stderr.write("authentication failed\\nAuthorization: Bearer github_pat_maliciousToken123456789\\nGH_TOKEN=ghp_maliciousToken123456789\\n"); process.exit(1); }
+else if (args[0] === "pr" && args[1] === "list" && mode === "multiline-token") process.stdout.write(JSON.stringify([{url:fakeShortToken,state:"OPEN",headRefName:"branch"}], null, 2) + "\\n");
+else if (args[0] === "pr" && args[1] === "list" && mode === "auth-token") { process.stderr.write(["authentication failed", ["Authorization: ", "Bearer ", fakeFineGrainedToken].join(""), "GH_TOKEN=" + fakeShortToken, ""].join("\\n")); process.exit(1); }
 else if (args[0] === "pr" && args[1] === "list") process.stdout.write("[]\\n");
 else if (args[0] === "pr" && args[1] === "create") process.stdout.write("https://github.com/acme/clock/pull/99\\n");
 else { console.error("unexpected gh argv: " + JSON.stringify(args)); process.exit(2); }
@@ -281,9 +283,7 @@ process.stdout.write(JSON.stringify({results,errors:[]}));
       expect(result.status).toBe(4);
       expect(result.stderr).toBe("");
       expect(result.stdout.trim().split("\n")).toHaveLength(1);
-      expect(result.stdout).not.toMatch(
-        /maliciousToken|github_pat_malicious|ghp_malicious/,
-      );
+      expect(result.stdout).not.toMatch(/maliciousToken/);
       const parsed = JSON.parse(result.stdout) as {
         schemaVersion: number;
         status: string;

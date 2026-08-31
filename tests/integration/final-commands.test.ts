@@ -61,6 +61,28 @@ class OfflinePublishRunner implements CommandRunner {
     options?: { cwd?: string; env?: NodeJS.ProcessEnv },
   ): Promise<CommandResult> {
     this.calls.push({ binary, args: [...args] });
+    if (binary === "semgrep") {
+      if (args.includes("--validate"))
+        return { exitCode: 0, stdout: "", stderr: "" };
+      const target = args.at(-1) ?? "";
+      const file = join(target, "src/token.ts");
+      const content = await readFile(file, "utf8").catch(() => "");
+      const results = content.includes("Date.now()")
+        ? [
+            {
+              path: file,
+              start: { line: 2 },
+              end: { line: 2 },
+              extra: { lines: "return Date.now();", message: "Inject Clock" },
+            },
+          ]
+        : [];
+      return {
+        exitCode: results.length ? 1 : 0,
+        stdout: JSON.stringify({ results, errors: [] }),
+        stderr: "",
+      };
+    }
     if (binary === "gh")
       return {
         exitCode: 0,
@@ -108,6 +130,30 @@ async function repository() {
 }
 
 describe("final public operations", () => {
+  it("keeps agent doctor independent from GitHub and model credentials", async () => {
+    const result = await runDoctor({
+      runner: new HealthyRunner(),
+      cwd: process.cwd(),
+      env: {
+        OPENAI_API_KEY: "present",
+        ANTHROPIC_API_KEY: "also-present",
+        REVIEW_TO_RULE_MODEL: "   ",
+      },
+      mode: "agent",
+    });
+    expect(result.status).toBe("success");
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "gh", status: "skip" }),
+        expect.objectContaining({ name: "github-auth", status: "skip" }),
+        expect.objectContaining({
+          name: "provider-credential",
+          status: "skip",
+        }),
+      ]),
+    );
+  });
+
   it("diagnoses prerequisites with stable statuses without credentials", async () => {
     const result = await runDoctor({
       runner: new HealthyRunner(),

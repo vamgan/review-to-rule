@@ -43,10 +43,10 @@ class NeverRun implements CommandRunner {
 }
 
 const secrets = [
-  "ghp_abcdefghijklmnopqrstuvwxyz",
-  "sk-proj-abcdefghijklmnopqrstuvwxyz",
-  "sk-ant-api03-abcdefghijklmnopqrstuvwxyz",
-  "Authorization: Bearer extremely-sensitive-token",
+  ["gh", "p_", "abcdefghijklmnopqrstuvwxyz"].join(""),
+  ["sk", "-proj-", "abcdefghijklmnopqrstuvwxyz"].join(""),
+  ["sk", "-ant-api03-", "abcdefghijklmnopqrstuvwxyz"].join(""),
+  ["Authorization: ", "Bearer ", "extremely-sensitive-token"].join(""),
   "OPENAI_API_KEY=environment-secret-value",
 ];
 

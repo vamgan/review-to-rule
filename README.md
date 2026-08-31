@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/review-to-rule-hero.png" alt="review-to-rule — a tenant-isolation review becoming a tested rule and passing pull-request check" width="100%">
+<img src="docs/assets/review-to-rule-hero.png" alt="review-to-rule turns an accepted tenant-isolation review into a tested guardrail" width="100%">
 
 <br>
 
@@ -8,26 +8,20 @@
 [![npm](https://img.shields.io/npm/v/review-to-rule?style=flat-square&color=cb3837&logo=npm)](https://www.npmjs.com/package/review-to-rule)
 [![CI](https://github.com/vamgan/review-to-rule/actions/workflows/ci.yml/badge.svg)](https://github.com/vamgan/review-to-rule/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-4c6fff.svg)](LICENSE)
-[![Node.js 24+](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 
-**A reviewer catches it once. Every future PR gets the rule.**
+**A reviewer catches it once. Every future change gets the rule.**
 
-Review comments disappear into merged pull requests. The same bugs come back.<br>
-`review-to-rule` turns the comment and accepted fix into a tested Semgrep guardrail.
+`review-to-rule` turns accepted code-review feedback into a tested Semgrep
+guardrail—whether the review came from GitHub, GitLab, Bitbucket, Gerrit,
+Azure Repos, or a private system your coding agent can access.
 
 </div>
 
----
-
-[Add to your agent](#add-it-to-your-agent) · [See a run](#what-a-run-looks-like) · [What gets saved](#what-gets-saved) · [How it works](#how-it-works) · [CLI](#use-the-cli-directly) · [Safety](#safety)
-
 ## Add it to your agent
 
-From the repository you want to protect:
+Run one command in the repository you want to protect:
 
 ```bash
-cd your-repository
-
 # Claude Code
 npx skills add vamgan/review-to-rule \
   --skill review-to-rule-write \
@@ -39,167 +33,124 @@ npx skills add vamgan/review-to-rule \
   --skill review-to-rule-write \
   --agent codex \
   --yes
-
-# Or every supported agent in this project
-npx skills add vamgan/review-to-rule --all
 ```
 
-The all-agent option also covers Cursor, Gemini CLI, OpenCode, Windsurf, and the
-other agents detected by the installer.
+Then ask:
 
-No separate CLI installation is required. The skill uses an existing
-`review-to-rule` binary when available and otherwise runs the published package
-through `npx`. It starts with `doctor`, which reports missing Node, Semgrep, Git,
-GitHub authentication, or provider setup before generation begins.
+> Turn this accepted review into a rule: `<PR, MR, change, or comment URL>`
 
-If `doctor` reports that GitHub is not authenticated, run `gh auth login`. For
-live rule generation, provide one model credential:
+No global `review-to-rule` install, `gh auth login`, model API key, or provider
+configuration is needed. The skill uses your agent's existing review-system
+access and runs the published validator through `npx` when the binary is not
+already available.
+
+The one external validation dependency is
+[Semgrep](https://semgrep.dev/docs/getting-started/quickstart):
 
 ```bash
-export OPENAI_API_KEY=...
-
-# Or use Anthropic
-export REVIEW_TO_RULE_PROVIDER=anthropic
-export ANTHROPIC_API_KEY=...
+pipx install semgrep
 ```
 
-Then ask your agent:
+The skill runs `review-to-rule doctor --agent`, retrieves the accepted review
+and before/after revisions, creates a temporary provider-neutral bundle, and
+shows a complete dry run. Nothing is saved until you approve both the policy
+location (`AGENTS.md`, `CLAUDE.md`, both, or neither) and the exact write plan.
 
-> Turn this resolved review into a rule: `https://github.com/owner/repo/pull/123#discussion_r456`
-
-The agent previews the evidence, rule, validation, repository matches, and exact
-files before asking whether to save anything. It also asks whether the optional
-agent pointer should live in `AGENTS.md`, `CLAUDE.md`, both, or neither.
-
-## What a run looks like
+## One review becomes executable memory
 
 ```text
-you › turn this review into a rule
-      https://github.com/acme/billing/pull/482#discussion_r189234
+review
+  “This invoice query must include tenantId or it can expose another customer.”
 
-agent › Reviewer intent
-        Every invoice query in this tenant-scoped route must filter by
-        tenantId so it cannot return another customer's invoices.
+accepted fix
+  db.invoice.findMany({ where: { tenantId } })
 
-        ✓ Reconstructed the code before and after the fix
-        ✓ Generated one statically enforceable rule
-        ✓ Original code matches; corrected code does not
-        ✓ Allowed alternative does not match
-        ✓ Scanned the current repository
-
-        Current repository matches: 3
-
-        Would write:
-        .review-to-rule/rules/require-tenant-scope.yml
-        .review-to-rule/evidence/require-tenant-scope.json
-        .review-to-rule/fixtures/require-tenant-scope/...
-
-        Nothing has changed yet. Save it and add an AGENTS.md pointer?
-
-you › yes
-
-agent › Rule saved. Future validation: review-to-rule validate-all
+validated guardrail
+  ✓ unsafe fixture matches
+  ✓ accepted fixture does not match
+  ✓ allowed alternative does not match
+  ✓ meaning-preserving mutations still match
+  ✓ current repository scanned
 ```
-
-The first pass is always a dry run.
-
-## What gets saved
-
-Rules and their proof live together in `.review-to-rule/`:
-
-```text
-.review-to-rule/
-├── rules/
-│   └── require-tenant-scope.yml
-├── evidence/
-│   └── require-tenant-scope.json
-├── fixtures/
-│   └── require-tenant-scope/
-│       ├── before.ts
-│       ├── after.ts
-│       └── allowed.ts
-└── manifests/
-    └── require-tenant-scope.json
-```
-
-The manifest records hashes, expectations, source review, confidence,
-limitations, generator version, and approval provenance. `review-to-rule replay`
-verifies the complete set without GitHub or a model.
-
-`AGENTS.md` and `CLAUDE.md` are optional managed pointers. They never become a
-second rule store.
-
-## How it works
-
-A resolved review thread contains unusually strong evidence:
-
-| Evidence                | What it proves                    |
-| ----------------------- | --------------------------------- |
-| Reviewer comment        | Why the original pattern is wrong |
-| Commented code          | A real negative example           |
-| Accepted correction     | What good looks like              |
-| Resolved, merged thread | A human approved the change       |
 
 ```mermaid
 flowchart LR
-  A[Resolved review] --> B[Recover before + after]
-  B --> C{Static and local?}
-  C -->|No| D[Useful refusal]
-  C -->|Yes| E[Propose one rule]
-  E --> F[Test with Semgrep]
-  F --> G[Scan repository]
-  G --> H[Human-approved guardrail]
+  A[Any review system] -->|host agent tools| B[Review learning bundle]
+  B --> C[Strict schema]
+  C --> D[Real Semgrep]
+  D --> E[Repository scan]
+  E --> F[Human-approved write]
+  F --> G[.review-to-rule]
 ```
 
-The model proposes intent and one structured rule. Deterministic reconstruction,
-strict schemas, stored fixtures, and real Semgrep decide whether it passes.
+The agent retrieves context and proposes one narrow rule. The deterministic
+core—not the agent—decides whether the schema, rule, fixtures, mutation checks,
+repository scope, and write plan are valid.
 
-Feedback such as “filter this query by `tenantId`” or “use the injected clock”
-can become a rule. Subjective, behavioral, ambiguous, or overly broad feedback
-produces a useful refusal instead of a fragile guardrail.
+Feedback that is subjective, behavioral, ambiguous, or too broad is refused
+instead of becoming a brittle rule.
 
-## Use the CLI directly
+## What gets stored
 
-For direct terminal use—not required by the agent skill—install the CLI once:
+The repository owns its future review memory:
+
+```text
+.review-to-rule/
+├── rules/       # validated Semgrep YAML
+├── evidence/    # bounded review provenance
+├── fixtures/    # before / after / allowed regression cases
+└── manifests/   # hashes, expectations, approval, replay metadata
+```
+
+`.review-to-rule/` is canonical. Optional managed blocks in `AGENTS.md` and
+`CLAUDE.md` only point agents to the stored rule and replay command; rule logic
+is never duplicated there.
+
+Future validation is offline and deterministic:
 
 ```bash
-npm install --global review-to-rule
-review-to-rule doctor
+npx review-to-rule@latest validate-all .review-to-rule --repo-dir .
+npx review-to-rule@latest replay .review-to-rule/manifests/<rule>.json
 ```
+
+## Standalone GitHub adapter
+
+The agent workflow above is the default. If you intentionally run without a
+capable host agent, the optional standalone adapter can retrieve one GitHub
+review and call OpenAI or Anthropic itself:
 
 ```bash
-# Preview one rule; writes nothing
-review-to-rule 'https://github.com/owner/repo/pull/123#discussion_r456'
+gh auth login
+export OPENAI_API_KEY=...
 
-# Save the reviewed artifacts
-review-to-rule "$REVIEW_URL" --write --policy-target neither
-
-# Create a reviewable pull request from an isolated clone
-review-to-rule "$REVIEW_URL" --repo-dir /path/to/repo --open-pr
-
-# Revalidate every stored rule without GitHub or a model
-review-to-rule validate-all
-
-# Install enforcement in CI after previewing the workflow
-review-to-rule install-ci --write
+npx review-to-rule@latest doctor
+npx review-to-rule@latest generate \
+  'https://github.com/owner/repo/pull/123#discussion_r456'
 ```
 
-`--open-pr` stages only approved paths, never force-pushes, and never merges.
-Existing rules need Semgrep in CI, but no GitHub review access or model key.
-Run `review-to-rule --help` for the complete command reference.
+`gh` authentication and a model credential are required only for this adapter.
+They are not required for `apply`, `validate`, `validate-all`, `scan`, or
+`replay`.
+
+For custom integrations, emit a versioned
+[review learning bundle](docs/REVIEW_BUNDLE.md) and run:
+
+```bash
+npx review-to-rule@latest apply review-bundle.json --repo-dir .
+```
 
 ## Safety
 
-- **Dry run by default.** Nothing is written without explicit approval.
-- **Bounded model input.** Only the relevant review and correction excerpts are sent.
-- **No target execution.** Repository tests, builds, hooks, and package scripts never run.
-- **Executable proof.** The original fixture must match; corrected and allowed fixtures must not.
-- **Transactional writes.** Paths are preflighted and partial failures roll back.
-- **Reviewable automation.** CI and pull requests are separate opt-ins; nothing auto-merges.
+- Dry run by default; writes require a reviewed preview and explicit approval.
+- Credential-free, bounded bundles; embedded URL credentials are rejected.
+- Exactly one strict rule; no autofix or unknown Semgrep fields.
+- Real before/after/allowed fixtures plus mutation and repository checks.
+- No target builds, tests, hooks, package scripts, or generated commands run.
+- Contained, symlink-aware, journaled writes with rollback and replay hashes.
+- Change-request publication is a separate opt-in and never auto-merges.
 
-There is no account, daemon, telemetry, background learner, or repository-wide
-code upload. Read the full [security model](docs/SECURITY.md) and
-[architecture](docs/ARCHITECTURE.md).
+There is no account, daemon, telemetry, or background learner. See the full
+[architecture](docs/ARCHITECTURE.md) and [security model](docs/SECURITY.md).
 
 ## Development
 
@@ -211,12 +162,4 @@ npm run release:check
 The checked-in demo needs no GitHub login or model key: `npm run demo`.
 Contributions are welcome—start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## License
-
-MIT. See [LICENSE](LICENSE).
-
----
-
-<div align="center">
-<sub>One review comment → one tested rule → one mistake your team does not repeat.</sub>
-</div>
+MIT licensed.

@@ -50,6 +50,18 @@ export interface ConfigOverrides extends Partial<Omit<FileConfig, "version">> {
   config?: string;
   fixture?: string;
 }
+export interface CoreConfigOverrides {
+  config?: string;
+  outputDir?: string;
+  confidenceFloor?: number;
+  severity?: "INFO" | "WARNING" | "ERROR";
+  matchLimit?: number;
+  include?: string[];
+  exclude?: string[];
+  policyTarget?: PolicyTarget;
+  agentsPath?: string;
+  claudePath?: string;
+}
 export interface EffectiveConfig {
   provider: ProviderName;
   model: string;
@@ -68,6 +80,43 @@ export interface EffectiveConfig {
   claudePath?: string;
   configPath?: string;
 }
+export interface CoreConfig {
+  outputDir: string;
+  confidenceFloor: number;
+  severity: "INFO" | "WARNING" | "ERROR";
+  matchLimit: number;
+  include: string[];
+  exclude: string[];
+  policyTarget: PolicyTarget;
+  agentsPath?: string;
+  claudePath?: string;
+  configPath?: string;
+}
+
+const coreFileConfigSchema = fileConfigSchema.pick({
+  version: true,
+  outputDir: true,
+  confidenceFloor: true,
+  severity: true,
+  matchLimit: true,
+  include: true,
+  exclude: true,
+  policyTarget: true,
+  agentsPath: true,
+  claudePath: true,
+});
+type CoreFileConfig = z.infer<typeof coreFileConfigSchema>;
+
+const coreConfigEnvelopeSchema = coreFileConfigSchema
+  .extend({
+    provider: z.unknown().optional(),
+    model: z.unknown().optional(),
+    baseUrl: z.unknown().optional(),
+    contextLines: z.unknown().optional(),
+    branchPrefix: z.unknown().optional(),
+    labels: z.unknown().optional(),
+  })
+  .strict();
 
 const defaults = {
   openai: { model: "gpt-5-mini", baseUrl: "https://api.openai.com/v1" },
@@ -85,6 +134,30 @@ async function readConfig(path: string): Promise<FileConfig> {
   } catch (error) {
     throw new ConfigurationError(
       `Invalid configuration ${path}: ${redact(error instanceof Error ? error.message : String(error))}`,
+    );
+  }
+}
+
+async function readCoreConfig(path: string): Promise<CoreFileConfig> {
+  try {
+    const text = await readFile(path, "utf8");
+    const envelope = coreConfigEnvelopeSchema.parse(parse(text));
+    const standaloneKeys = new Set([
+      "provider",
+      "model",
+      "baseUrl",
+      "contextLines",
+      "branchPrefix",
+      "labels",
+    ]);
+    return coreFileConfigSchema.parse(
+      Object.fromEntries(
+        Object.entries(envelope).filter(([key]) => !standaloneKeys.has(key)),
+      ),
+    );
+  } catch (error) {
+    throw new ConfigurationError(
+      `Invalid core configuration ${path}: ${redact(error instanceof Error ? error.message : String(error))}`,
     );
   }
 }
@@ -169,10 +242,73 @@ function environmentConfig(env: NodeJS.ProcessEnv): FileConfig {
   });
 }
 
-export async function resolveConfig(
+function coreEnvironmentConfig(env: NodeJS.ProcessEnv): CoreFileConfig {
+  const numeric = (value: string | undefined) =>
+    value === undefined ? undefined : Number(value);
+  return coreFileConfigSchema.parse({
+    version: 1,
+    ...(env.REVIEW_TO_RULE_OUTPUT_DIR
+      ? { outputDir: env.REVIEW_TO_RULE_OUTPUT_DIR }
+      : {}),
+    ...(env.REVIEW_TO_RULE_CONFIDENCE_FLOOR
+      ? { confidenceFloor: numeric(env.REVIEW_TO_RULE_CONFIDENCE_FLOOR) }
+      : {}),
+    ...(env.REVIEW_TO_RULE_SEVERITY
+      ? { severity: env.REVIEW_TO_RULE_SEVERITY }
+      : {}),
+    ...(env.REVIEW_TO_RULE_MATCH_LIMIT
+      ? { matchLimit: numeric(env.REVIEW_TO_RULE_MATCH_LIMIT) }
+      : {}),
+    ...(commaList(env.REVIEW_TO_RULE_INCLUDE)
+      ? { include: commaList(env.REVIEW_TO_RULE_INCLUDE) }
+      : {}),
+    ...(commaList(env.REVIEW_TO_RULE_EXCLUDE)
+      ? { exclude: commaList(env.REVIEW_TO_RULE_EXCLUDE) }
+      : {}),
+    ...(env.REVIEW_TO_RULE_POLICY_TARGET
+      ? { policyTarget: env.REVIEW_TO_RULE_POLICY_TARGET }
+      : {}),
+    ...(env.REVIEW_TO_RULE_AGENTS_PATH
+      ? { agentsPath: env.REVIEW_TO_RULE_AGENTS_PATH }
+      : {}),
+    ...(env.REVIEW_TO_RULE_CLAUDE_PATH
+      ? { claudePath: env.REVIEW_TO_RULE_CLAUDE_PATH }
+      : {}),
+  });
+}
+
+function validateExactConfigPaths(input: {
+  outputDir?: string | undefined;
+  agentsPath?: string | undefined;
+  claudePath?: string | undefined;
+}): void {
+  for (const [field, value] of [
+    ["outputDir", input.outputDir],
+    ["agentsPath", input.agentsPath],
+    ["claudePath", input.claudePath],
+  ] as const) {
+    if (!value) continue;
+    try {
+      assertSafeExactPath(value, field);
+    } catch {
+      throw new ConfigurationError(
+        `Invalid ${field}: expected a contained exact relative path without traversal, glob syntax, unsafe Unicode, drive syntax, or an absolute prefix.`,
+        `Correct ${field} in the highest-precedence configuration source.`,
+      );
+    }
+  }
+}
+
+async function resolveConfigData(
   cli: ConfigOverrides,
   options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
-): Promise<EffectiveConfig> {
+): Promise<{
+  mergedConfig: FileConfig;
+  fromEnvironment: FileConfig;
+  file?: FileConfig;
+  configPath: string;
+  env: NodeJS.ProcessEnv;
+}> {
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
   const fromEnvironment = environmentConfig(env);
@@ -212,22 +348,83 @@ export async function resolveConfig(
         .join("; ")}`,
       "Correct the named CLI, config-file, or environment field.",
     );
-  for (const [field, value] of [
-    ["outputDir", effective.data.outputDir],
-    ["agentsPath", effective.data.agentsPath],
-    ["claudePath", effective.data.claudePath],
-  ] as const) {
-    if (!value) continue;
-    try {
-      assertSafeExactPath(value, field);
-    } catch {
-      throw new ConfigurationError(
-        `Invalid ${field}: expected a contained exact relative path without traversal, glob syntax, unsafe Unicode, drive syntax, or an absolute prefix.`,
-        `Correct ${field} in the highest-precedence configuration source.`,
-      );
-    }
+  validateExactConfigPaths(effective.data);
+  return {
+    mergedConfig: effective.data,
+    fromEnvironment,
+    ...(file ? { file } : {}),
+    configPath,
+    env,
+  };
+}
+
+function coreConfig(
+  mergedConfig: CoreFileConfig,
+  configPath: string,
+  hasFile: boolean,
+): CoreConfig {
+  return {
+    outputDir: mergedConfig.outputDir ?? ".review-to-rule",
+    confidenceFloor: mergedConfig.confidenceFloor ?? 0.8,
+    severity: mergedConfig.severity ?? "WARNING",
+    matchLimit: mergedConfig.matchLimit ?? 200,
+    include: mergedConfig.include ?? [],
+    exclude: mergedConfig.exclude ?? [],
+    policyTarget: mergedConfig.policyTarget ?? "neither",
+    ...(mergedConfig.agentsPath ? { agentsPath: mergedConfig.agentsPath } : {}),
+    ...(mergedConfig.claudePath ? { claudePath: mergedConfig.claudePath } : {}),
+    ...(hasFile ? { configPath } : {}),
+  };
+}
+
+export async function resolveCoreConfig(
+  cli: CoreConfigOverrides,
+  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<CoreConfig> {
+  const cwd = options.cwd ?? process.cwd();
+  const env = options.env ?? process.env;
+  const fromEnvironment = coreEnvironmentConfig(env);
+  const configPath = cli.config
+    ? resolve(cwd, cli.config)
+    : resolve(cwd, ".review-to-rule.yml");
+  let file: CoreFileConfig | undefined;
+  try {
+    file = await readCoreConfig(configPath);
+  } catch (error) {
+    if (cli.config) throw error;
+    if (
+      !(error instanceof ConfigurationError) ||
+      !error.message.includes("ENOENT")
+    )
+      throw error;
   }
-  const mergedConfig = effective.data;
+  const effective = coreFileConfigSchema.safeParse({
+    ...fromEnvironment,
+    ...file,
+    ...Object.fromEntries(
+      Object.entries(cli).filter(
+        ([key, value]) => key !== "config" && value !== undefined,
+      ),
+    ),
+    version: 1,
+  });
+  if (!effective.success)
+    throw new ConfigurationError(
+      `Invalid effective core configuration: ${effective.error.issues
+        .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
+        .join("; ")}`,
+      "Correct the named CLI, config-file, or environment field.",
+    );
+  validateExactConfigPaths(effective.data);
+  return coreConfig(effective.data, configPath, Boolean(file));
+}
+
+export async function resolveConfig(
+  cli: ConfigOverrides,
+  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<EffectiveConfig> {
+  const { mergedConfig, fromEnvironment, file, configPath, env } =
+    await resolveConfigData(cli, options);
   const provider = inferProvider(mergedConfig.provider, env, cli.fixture);
   if (provider === "fake" && !cli.fixture)
     throw new ConfigurationError(
@@ -255,22 +452,13 @@ export async function resolveConfig(
     fromEnvironment.baseUrl ??
     defaults[provider].baseUrl;
   return {
+    ...coreConfig(mergedConfig, configPath, Boolean(file)),
+    contextLines: mergedConfig.contextLines ?? 3,
+    branchPrefix: mergedConfig.branchPrefix ?? "review-to-rule/",
+    labels: mergedConfig.labels ?? [],
     provider,
     model,
     ...(baseUrl ? { baseUrl } : {}),
-    outputDir: mergedConfig.outputDir ?? ".review-to-rule",
-    confidenceFloor: mergedConfig.confidenceFloor ?? 0.8,
-    severity: mergedConfig.severity ?? "WARNING",
-    contextLines: mergedConfig.contextLines ?? 3,
-    matchLimit: mergedConfig.matchLimit ?? 200,
-    include: mergedConfig.include ?? [],
-    exclude: mergedConfig.exclude ?? [],
-    branchPrefix: mergedConfig.branchPrefix ?? "review-to-rule/",
-    labels: mergedConfig.labels ?? [],
-    policyTarget: mergedConfig.policyTarget ?? "neither",
-    ...(mergedConfig.agentsPath ? { agentsPath: mergedConfig.agentsPath } : {}),
-    ...(mergedConfig.claudePath ? { claudePath: mergedConfig.claudePath } : {}),
-    ...(file ? { configPath } : {}),
   };
 }
 

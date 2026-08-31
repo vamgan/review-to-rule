@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "reviewSystem": "gitlab",
+    "url": "https://gitlab.corp.example/acme/billing/-/merge_requests/482#note_189234",
+    "repository": {
+      "host": "gitlab.corp.example",
+      "owner": "acme",
+      "name": "billing"
+    },
+    "change": {
+      "id": 482,
+      "baseRevision": "reviewed-change",
+      "headRevision": "accepted-change",
+      "merged": true,
+      "mergedAt": "2026-08-30T12:00:00Z",
+      "mergeRevision": "merged-change"
+    }
+  },
+  "review": {
+    "id": 189234,
+    "body": "This query must be tenant-scoped so one customer cannot read another customer's invoices.",
+    "resolved": true,
+    "path": "src/invoices.ts",
+    "root": {
+      "id": 189234,
+      "body": "This query must be tenant-scoped so one customer cannot read another customer's invoices."
+    },
+    "replies": []
+  },
+  "snapshots": {
+    "before": {
+      "path": "src/invoices.ts",
+      "revision": "reviewed-change",
+      "excerpt": "const invoices = db.invoice.findMany();\n",
+      "truncated": false
+    },
+    "after": {
+      "path": "src/invoices.ts",
+      "revision": "accepted-change",
+      "excerpt": "const invoices = db.invoice.findMany({ where: { tenantId } });\n",
+      "truncated": false
+    }
+  },
+  "correction": {
+    "path": "src/invoices.ts",
+    "language": "typescript",
+    "intentSummary": "Require tenant scoping on invoice list queries.",
+    "before": "const invoices = db.invoice.findMany();\n",
+    "after": "const invoices = db.invoice.findMany({ where: { tenantId } });\n",
+    "evidence": ["The accepted change added tenantId to the invoice query."],
+    "confidence": 0.98
+  },
+  "enforceability": {
+    "enforceable": true,
+    "category": "API_USAGE",
+    "reviewerIntent": "Invoice list queries in this file must not use the unscoped zero-argument form.",
+    "prohibitedPattern": "$DB.invoice.findMany()",
+    "preferredPattern": "$DB.invoice.findMany({ where: { tenantId: $TENANT } })",
+    "rationale": "The prohibited call is a local AST pattern with an accepted replacement.",
+    "limitations": [
+      "This narrow rule catches the reviewed zero-argument form; broader tenant-flow guarantees require separate controls."
+    ],
+    "confidence": 0.96
+  },
+  "rule": {
+    "id": "review-to-rule.require-tenant-scoped-invoice-query",
+    "title": "Require tenant-scoped invoice queries",
+    "message": "Invoice queries must include tenant scope; use the accepted tenantId-filtered form.",
+    "language": "typescript",
+    "severity": "ERROR",
+    "yaml": "rules:\n  - id: review-to-rule.require-tenant-scoped-invoice-query\n    message: Invoice queries must include tenant scope; use the accepted tenantId-filtered form.\n    severity: ERROR\n    languages: [typescript]\n    metadata:\n      source: review-to-rule\n      generator: review-to-rule@0.1.0\n      review: gitlab.corp.example/acme/billing!482#note_189234\n    pattern: $DB.invoice.findMany()\n    paths:\n      include: [src/invoices.ts]\n      exclude: [node_modules/**, dist/**, build/**, .git/**, '**/generated/**', '**/fixtures/**']\n",
+    "include": ["src/invoices.ts"],
+    "exclude": [
+      "node_modules/**",
+      "dist/**",
+      "build/**",
+      ".git/**",
+      "**/generated/**",
+      "**/fixtures/**"
+    ],
+    "rationale": "The rule blocks the exact unscoped API form identified and corrected in review.",
+    "limitations": [
+      "This narrow rule catches the reviewed zero-argument form; broader tenant-flow guarantees require separate controls."
+    ],
+    "confidence": 0.96
+  },
+  "fixtures": {
+    "before": "const invoices = db.invoice.findMany();\n",
+    "after": "const invoices = db.invoice.findMany({ where: { tenantId } });\n"
+  },
+  "provenance": [
+    "Host agent retrieved the accepted review thread and both file revisions through its configured code-review tools."
+  ],
+  "warnings": []
+}

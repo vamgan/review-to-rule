@@ -20,7 +20,10 @@
     "semgrep",
     "code-review",
     "static-analysis",
-    "cli"
+    "cli",
+    "coding-agents",
+    "gitlab",
+    "github"
   ],
   "engines": {
     "node": ">=24"
@@ -29,13 +32,14 @@
     "review-to-rule": "dist/cli.js"
   },
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./core": "./dist/core-entry.js"
   },
   "files": [
     "dist",
     "examples",
     "docs",
-    ".agents/skills/review-to-rule-write/SKILL.md",
+    ".agents/skills/review-to-rule-write",
     "README.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
@@ -43,7 +47,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/set-bin-mode.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/set-bin-mode.mjs",
     "prepare": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",

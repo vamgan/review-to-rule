@@ -22,6 +22,10 @@ import {
 const root = new URL("../..", import.meta.url).pathname;
 const cli = new URL("../../dist/cli.js", import.meta.url).pathname;
 const review = "https://github.com/acme/clock/pull/42#discussion_r1001";
+const reviewBundle = new URL(
+  "../../examples/review-bundle/gitlab-tenant-scope.json",
+  import.meta.url,
+).pathname;
 const env = {
   ...process.env,
   GITHUB_TOKEN: undefined,
@@ -83,6 +87,13 @@ describe("built public CLI", () => {
     const evidenceHelp = await run(["evidence", "--help"]);
     expect(evidenceHelp.status).toBe(0);
     expect(evidenceHelp.stdout).toContain("<review-comment-url>");
+    const applyHelp = await run(["apply", "--help"]);
+    expect(applyHelp.status).toBe(0);
+    expect(applyHelp.stdout).toContain("<bundle-path>");
+    expect(applyHelp.stdout).not.toContain("--provider");
+    const doctorHelp = await run(["doctor", "--help"]);
+    expect(doctorHelp.status).toBe(0);
+    expect(doctorHelp.stdout).toContain("--agent");
     expect(statSync(cli).mode & 0o111).not.toBe(0);
   });
 
@@ -110,6 +121,66 @@ describe("built public CLI", () => {
       );
       expect(human.stdout).toContain("Suggested write command:");
       expect(human.stdout).toContain("--write --policy-target 'neither'");
+    },
+    60_000,
+  );
+
+  it.skipIf(!semgrepAvailable)(
+    semgrepAvailable
+      ? "validates host-agent evidence without GitHub or model credentials"
+      : `validates host-agent evidence (${semgrepSkipReason})`,
+    async () => {
+      const repository = mkdtempSync(join(tmpdir(), "rtr-agent-cli-"));
+      mkdirSync(join(repository, "src"), { recursive: true });
+      writeFileSync(
+        join(repository, "src/invoices.ts"),
+        "const invoices = db.invoice.findMany({ where: { tenantId } });\n",
+      );
+      execFileSync("git", ["init", "-q"], { cwd: repository });
+      execFileSync("git", ["config", "user.email", "test@example.com"], {
+        cwd: repository,
+      });
+      execFileSync("git", ["config", "user.name", "Test"], {
+        cwd: repository,
+      });
+      execFileSync("git", ["add", "src/invoices.ts"], { cwd: repository });
+      execFileSync("git", ["commit", "-qm", "accepted correction"], {
+        cwd: repository,
+      });
+
+      const generated = await run(
+        ["apply", reviewBundle, "--repo-dir", repository, "--json"],
+        { cwd: repository },
+      );
+      expect(generated.status, generated.stderr).toBe(0);
+      const result = generationResultSchema.parse(JSON.parse(generated.stdout));
+      expect(result.provider).toEqual({
+        name: "host-agent",
+        model: "agent-context",
+      });
+      expect(result.source?.source?.reviewSystem).toBe("gitlab");
+      expect(
+        result.validation?.checks.every((check) => check.status !== "failed"),
+      ).toBe(true);
+      expect(existsSync(join(repository, ".review-to-rule"))).toBe(false);
+
+      const doctor = await run(
+        ["doctor", "--agent", "--repo-dir", repository, "--json"],
+        { cwd: repository },
+      );
+      expect(doctor.status, doctor.stderr).toBe(0);
+      const checks = (
+        JSON.parse(doctor.stdout) as {
+          checks: Array<{ name: string; status: string }>;
+        }
+      ).checks;
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          { name: "gh", status: "skip" },
+          { name: "github-auth", status: "skip" },
+          { name: "provider-credential", status: "skip" },
+        ]),
+      );
     },
     60_000,
   );

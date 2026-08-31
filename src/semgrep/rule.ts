@@ -8,7 +8,12 @@ import {
 
 const metadataSchema = z.strictObject({
   source: z.literal("review-to-rule"),
-  generator: z.literal("review-to-rule@0.1.0"),
+  generator: z
+    .string()
+    .regex(
+      /^review-to-rule@(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/,
+      "generator must be review-to-rule@<semantic-version>",
+    ),
   review: z.string().min(1).max(500),
 });
 const pathsSchema = z.strictObject({

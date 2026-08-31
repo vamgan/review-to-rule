@@ -4,9 +4,12 @@ import { errorOutcome, generate } from "./pipeline.js";
 import { renderHuman } from "./cli/render.js";
 import { createInterface } from "node:readline/promises";
 import { stdin, stderr as output } from "node:process";
-import { resolveConfig, providerCredential } from "./config.js";
+import {
+  resolveConfig,
+  resolveCoreConfig,
+  providerCredential,
+} from "./config.js";
 import { FakeProvider } from "./llm/provider.js";
-import { AnthropicProvider, OpenAIProvider } from "./llm/adapters.js";
 import { ProcessCommandRunner } from "./utils/command.js";
 import {
   ConfigurationError,
@@ -25,6 +28,8 @@ import { runDoctor } from "./doctor.js";
 import { installCi, planCiInstall } from "./install-ci.js";
 import { openPullRequest } from "./open-pr.js";
 import { preflightDebugBundle, writeDebugBundle } from "./debug-bundle.js";
+import { applyReviewLearningBundle } from "./core.js";
+import { loadReviewLearningBundle } from "./review-bundle.js";
 
 interface CliOptions {
   repoDir?: string;
@@ -202,7 +207,7 @@ export function buildProgram(): Command {
   const program = new Command()
     .name("review-to-rule")
     .description(
-      "Convert accepted GitHub review feedback into a tested Semgrep rule.",
+      "Convert accepted code-review feedback into a tested Semgrep rule.",
     )
     .version(GENERATOR_VERSION)
     .exitOverride()
@@ -210,7 +215,7 @@ export function buildProgram(): Command {
   addGenerateOptions(
     program
       .command("generate")
-      .description("generate one validated rule")
+      .description("standalone GitHub adapter: retrieve, propose, and validate")
       .argument(
         "<review-comment-url>",
         "GitHub pull-request review comment URL",
@@ -242,10 +247,12 @@ export function buildProgram(): Command {
         const credential = providerCredential(config.provider, process.env);
         let provider;
         try {
-          provider =
-            config.provider === "fake"
-              ? new FakeProvider()
-              : config.provider === "openai"
+          if (config.provider === "fake") provider = new FakeProvider();
+          else {
+            const { AnthropicProvider, OpenAIProvider } =
+              await import("./llm/adapters.js");
+            provider =
+              config.provider === "openai"
                 ? new OpenAIProvider({
                     model: config.model,
                     ...(credential ? { apiKey: credential } : {}),
@@ -256,6 +263,7 @@ export function buildProgram(): Command {
                     ...(credential ? { apiKey: credential } : {}),
                     ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
                   });
+          }
         } catch (error) {
           emitEarlyError(options, error);
           return;
@@ -343,6 +351,134 @@ export function buildProgram(): Command {
         process.exitCode = outcome.exitCode;
       }),
   );
+  program
+    .command("apply")
+    .description(
+      "validate and optionally persist a provider-neutral review bundle",
+    )
+    .argument("<bundle-path>", "version-1 review learning bundle JSON")
+    .option("--repo-dir <path>", "target repository directory")
+    .option(
+      "--write",
+      "transactionally write validated artifacts after preview",
+    )
+    .option("--yes", "approve non-interactive mutations")
+    .option("--json", "emit one schema-versioned JSON object")
+    .option("--output-dir <path>", "artifact output directory")
+    .option("--config <path>", "configuration file")
+    .option("--allow-open-review", "permit an unmerged code review")
+    .option("--allow-unresolved", "permit an unresolved review thread")
+    .addOption(
+      new Option("--policy-target <target>", "managed pointer target").choices([
+        "agents",
+        "claude",
+        "both",
+        "neither",
+      ]),
+    )
+    .option("--agents-path <path>", "exact AGENTS.md path for managed pointer")
+    .option("--claude-path <path>", "exact CLAUDE.md path for managed pointer")
+    .action(
+      async (
+        bundlePath: string,
+        options: {
+          repoDir?: string;
+          write?: boolean;
+          yes?: boolean;
+          json?: boolean;
+          outputDir?: string;
+          config?: string;
+          allowOpenReview?: boolean;
+          allowUnresolved?: boolean;
+          policyTarget?: "agents" | "claude" | "both" | "neither";
+          agentsPath?: string;
+          claudePath?: string;
+          debug?: boolean;
+        },
+        command: Command,
+      ) => {
+        const repositoryDir = resolve(options.repoDir ?? process.cwd());
+        const absoluteBundlePath = resolve(bundlePath);
+        let bundle;
+        let config;
+        try {
+          [bundle, config] = await Promise.all([
+            loadReviewLearningBundle(absoluteBundlePath),
+            resolveCoreConfig(
+              {
+                ...(options.outputDir ? { outputDir: options.outputDir } : {}),
+                ...(options.config ? { config: options.config } : {}),
+                ...(options.policyTarget
+                  ? { policyTarget: options.policyTarget }
+                  : {}),
+                ...(options.agentsPath
+                  ? { agentsPath: options.agentsPath }
+                  : {}),
+                ...(options.claudePath
+                  ? { claudePath: options.claudePath }
+                  : {}),
+              },
+              { cwd: repositoryDir },
+            ),
+          ]);
+        } catch (error) {
+          emitEarlyError(options, error);
+          return;
+        }
+        const confirmation = {
+          isTTY: stdin.isTTY && output.isTTY,
+          confirm: async (summary: string) => {
+            const prompt = createInterface({ input: stdin, output });
+            try {
+              const answer = await prompt.question(
+                `${summary}\nType 'yes' to continue: `,
+              );
+              return answer.trim().toLowerCase() === "yes";
+            } finally {
+              prompt.close();
+            }
+          },
+        };
+        const outcome = await applyReviewLearningBundle(bundle, {
+          repositoryDir,
+          repositorySource: options.repoDir
+            ? "agent_explicit"
+            : "agent_current",
+          runner: new ProcessCommandRunner(),
+          ...(options.write ? { write: true } : {}),
+          ...(options.yes ? { yes: true } : {}),
+          outputDir: config.outputDir,
+          policyTarget: config.policyTarget,
+          policyTargetExplicit:
+            command.getOptionValueSource("policyTarget") === "cli",
+          ...(config.agentsPath ? { agentsPath: config.agentsPath } : {}),
+          agentsPathExplicit:
+            command.getOptionValueSource("agentsPath") === "cli",
+          ...(config.claudePath ? { claudePath: config.claudePath } : {}),
+          claudePathExplicit:
+            command.getOptionValueSource("claudePath") === "cli",
+          confidenceFloor: config.confidenceFloor,
+          severity: config.severity,
+          include: config.include,
+          exclude: config.exclude,
+          matchLimit: config.matchLimit,
+          confirmation,
+          providerInfo: { name: "host-agent", model: "agent-context" },
+          invocation: `review-to-rule apply '${absoluteBundlePath.replaceAll("'", `'"'"'`)}'`,
+          warnings: [
+            "Review evidence and the proposed rule came from the host agent; deterministic validation remains authoritative.",
+          ],
+          ...(options.allowOpenReview ? { allowOpenReview: true } : {}),
+          ...(options.allowUnresolved ? { allowUnresolved: true } : {}),
+        });
+        process.stdout.write(
+          options.json
+            ? `${JSON.stringify(outcome.result)}\n`
+            : `${renderHuman(outcome.result)}\n`,
+        );
+        process.exitCode = outcome.exitCode;
+      },
+    );
   program
     .command("evidence")
     .description("collect sanitized review evidence through read-only gh calls")
@@ -530,12 +666,17 @@ export function buildProgram(): Command {
     .option("--repo-dir <path>", "repository to inspect")
     .option("--config <path>", "configuration file")
     .option("--fixture <name>", "select offline fixture mode")
+    .option(
+      "--agent",
+      "check only prerequisites needed for host-agent generation",
+    )
     .option("--json", "emit one schema-versioned JSON object")
     .action(
       async (options: {
         repoDir?: string;
         config?: string;
         fixture?: string;
+        agent?: boolean;
         json?: boolean;
       }) => {
         const result = await runDoctor({
@@ -545,6 +686,7 @@ export function buildProgram(): Command {
             ...(options.config ? { config: options.config } : {}),
             ...(options.fixture ? { fixture: options.fixture } : {}),
           },
+          ...(options.agent ? { mode: "agent" as const } : {}),
         });
         process.stdout.write(
           options.json
@@ -734,6 +876,7 @@ export function buildProgram(): Command {
 
 const args = process.argv.slice(2);
 const commandNames = new Set([
+  "apply",
   "generate",
   "evidence",
   "replay",

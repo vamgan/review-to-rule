@@ -8,6 +8,7 @@ import {
 } from "../domain/schemas.js";
 import { RefusalError, ValidationError } from "../domain/errors.js";
 import { stringify } from "yaml";
+import { GENERATOR_TAG } from "../version.js";
 import { boundUntrusted, redact } from "../security/redact.js";
 import { createHash } from "node:crypto";
 
@@ -218,7 +219,7 @@ export class FakeProvider implements StructuredProvider {
       languages: [request.candidate.language],
       metadata: {
         source: "review-to-rule",
-        generator: "review-to-rule@0.1.0",
+        generator: GENERATOR_TAG,
         review: "offline-fixture",
       },
       ...patternOperator,

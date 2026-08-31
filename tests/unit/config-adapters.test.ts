@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveConfig } from "../../src/config.js";
+import { resolveConfig, resolveCoreConfig } from "../../src/config.js";
 import {
   OpenAIProvider,
   AnthropicProvider,
@@ -22,6 +22,31 @@ const candidate = correctionCandidateSchema.parse({
 });
 
 describe("configuration precedence and provider selection", () => {
+  it("keeps agent mode independent from standalone provider configuration", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rtr-core-config-"));
+    await writeFile(
+      join(directory, ".review-to-rule.yml"),
+      "version: 1\nprovider: private-enterprise-model\nmodel: [stale]\nbaseUrl: not-a-url\nbranchPrefix: false\nlabels: stale\noutputDir: quality/reviews\n",
+    );
+    await expect(
+      resolveCoreConfig(
+        {},
+        {
+          cwd: directory,
+          env: {
+            OPENAI_API_KEY: "present",
+            ANTHROPIC_API_KEY: "also-present",
+            REVIEW_TO_RULE_MODEL: "   ",
+            REVIEW_TO_RULE_BASE_URL: "not-a-url",
+          },
+        },
+      ),
+    ).resolves.toMatchObject({
+      outputDir: "quality/reviews",
+      policyTarget: "neither",
+    });
+  });
+
   it.each(["outputDir", "agentsPath", "claudePath"] as const)(
     "rejects unsafe %s values from CLI, file, and environment before provider work",
     async (field) => {

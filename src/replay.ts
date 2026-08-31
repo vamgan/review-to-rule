@@ -18,7 +18,11 @@ import {
 import { validateWithSemgrep } from "./semgrep/runner.js";
 import type { CommandRunner } from "./utils/command.js";
 import { validateManagedPolicyPointer } from "./policy.js";
-import { canonicalReviewIdentity, parseReviewUrl } from "./github/url.js";
+import { parseReviewUrl } from "./github/url.js";
+import {
+  canonicalReviewSourceIdentity,
+  normalizeReviewSourceUrl,
+} from "./source.js";
 
 const maxReplayFileBytes = 2_000_000;
 const sha256 = (value: string) =>
@@ -149,23 +153,33 @@ export async function replayArtifactManifest(input: {
   let parsedSource;
   try {
     parsedSource = parseReviewUrl(manifest.source.url);
-  } catch (error) {
-    throw new ValidationError(
-      `Manifest source URL is unsupported: ${error instanceof Error ? error.message : String(error)}`,
-    );
+  } catch {
+    parsedSource = undefined;
   }
-  if (
-    evidence.repository.owner.toLowerCase() !==
-      parsedSource.owner.toLowerCase() ||
-    evidence.repository.name.toLowerCase() !==
-      parsedSource.repository.toLowerCase() ||
-    evidence.pullRequest.number !== parsedSource.pullRequestNumber ||
-    evidence.review.commentId !== parsedSource.commentId
+  if (parsedSource) {
+    if (
+      evidence.repository.owner.toLowerCase() !==
+        parsedSource.owner.toLowerCase() ||
+      evidence.repository.name.toLowerCase() !==
+        parsedSource.repository.toLowerCase() ||
+      evidence.pullRequest.number !== parsedSource.pullRequestNumber ||
+      evidence.review.commentId !== parsedSource.commentId
+    )
+      throw new ValidationError(
+        "Stored evidence identity does not match the manifest source review.",
+      );
+  } else if (
+    !evidence.source ||
+    normalizeReviewSourceUrl(evidence.source.url) !==
+      normalizeReviewSourceUrl(manifest.source.url)
   )
     throw new ValidationError(
-      "Stored evidence identity does not match the manifest source review.",
+      "Stored agent evidence source does not match the manifest source review.",
     );
-  if (manifest.source.identity !== canonicalReviewIdentity(parsedSource))
+  if (
+    manifest.source.identity !==
+    canonicalReviewSourceIdentity(manifest.source.url)
+  )
     throw new ValidationError(
       "Manifest canonical source identity does not match its source URL.",
     );

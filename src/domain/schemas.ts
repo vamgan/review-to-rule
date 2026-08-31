@@ -1,4 +1,23 @@
 import { z } from "zod";
+import { reviewSystemSchema } from "../source.js";
+
+const reviewIdSchema = z.union([
+  z.number().int().positive(),
+  z.string().trim().min(1).max(200),
+]);
+
+const sourceUrlSchema = z
+  .url()
+  .refine(
+    (value) => new Set(["https:", "http:"]).has(new URL(value).protocol),
+    {
+      message: "must be an HTTP(S) URL",
+    },
+  )
+  .refine((value) => {
+    const parsed = new URL(value);
+    return !parsed.username && !parsed.password;
+  }, "must not contain embedded credentials");
 
 export const languageSchema = z.enum(["typescript", "javascript", "python"]);
 export type Language = z.infer<typeof languageSchema>;
@@ -12,6 +31,7 @@ export const boundedSourceSchema = z.object({
     "diff_preimage",
     "historical_content",
     "fixture",
+    "agent_context",
   ]),
   excerpt: z.string().max(8000),
   startLine: z.number().int().positive().optional(),
@@ -21,16 +41,27 @@ export const boundedSourceSchema = z.object({
 
 export const reviewEvidenceSchema = z.object({
   schemaVersion: z.literal(1),
-  repository: z.object({ owner: z.string(), name: z.string() }),
+  source: z
+    .object({
+      reviewSystem: reviewSystemSchema,
+      url: sourceUrlSchema,
+    })
+    .strict()
+    .optional(),
+  repository: z.object({
+    host: z.string().trim().min(1).max(255).optional(),
+    owner: z.string(),
+    name: z.string(),
+  }),
   pullRequest: z.object({
-    number: z.number().int().positive(),
+    number: reviewIdSchema,
     headSha: z.string(),
     baseSha: z.string(),
     mergedAt: z.string().nullable().optional(),
     mergeSha: z.string().nullable().optional(),
   }),
   review: z.object({
-    commentId: z.number().int().positive(),
+    commentId: reviewIdSchema,
     body: z.string().max(4000),
     resolved: z.boolean(),
     merged: z.boolean(),
@@ -41,11 +72,11 @@ export const reviewEvidenceSchema = z.object({
     updatedAt: z.string().optional(),
   }),
   threadRoot: z.object({
-    id: z.number().int().positive(),
+    id: reviewIdSchema,
     body: z.string().max(4000),
   }),
   replies: z.array(
-    z.object({ id: z.number().int().positive(), body: z.string().max(4000) }),
+    z.object({ id: reviewIdSchema, body: z.string().max(4000) }),
   ),
   original: boundedSourceSchema,
   final: boundedSourceSchema,
