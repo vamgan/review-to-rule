@@ -80,7 +80,7 @@ describe("built public CLI", () => {
       "--config",
     ])
       expect(help.stdout).toContain(flag);
-    expect((await run(["--version"])).stdout.trim()).toBe("0.1.0");
+    expect((await run(["--version"])).stdout.trim()).toBe("0.2.0");
     const replayHelp = await run(["replay", "--help"]);
     expect(replayHelp.status).toBe(0);
     expect(replayHelp.stdout).toContain("<manifest-path>");

@@ -251,7 +251,7 @@ describe("final public operations", () => {
         expect(result.exitCode, severity).toBe(expected);
       }
       expect(CI_WORKFLOW).toContain("--severity ERROR --error");
-      expect(CI_WORKFLOW).toContain("review-to-rule@0.1.0");
+      expect(CI_WORKFLOW).toContain("review-to-rule@0.2.0");
       expect(CI_WORKFLOW).not.toMatch(/OPENAI|ANTHROPIC|GH_TOKEN|secrets\./);
     },
     180_000,

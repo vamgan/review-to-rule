@@ -69,7 +69,7 @@
     "message": "Invoice queries must include tenant scope; use the accepted tenantId-filtered form.",
     "language": "typescript",
     "severity": "ERROR",
-    "yaml": "rules:\n  - id: review-to-rule.require-tenant-scoped-invoice-query\n    message: Invoice queries must include tenant scope; use the accepted tenantId-filtered form.\n    severity: ERROR\n    languages: [typescript]\n    metadata:\n      source: review-to-rule\n      generator: review-to-rule@0.1.0\n      review: gitlab.corp.example/acme/billing!482#note_189234\n    pattern: $DB.invoice.findMany()\n    paths:\n      include: [src/invoices.ts]\n      exclude: [node_modules/**, dist/**, build/**, .git/**, '**/generated/**', '**/fixtures/**']\n",
+    "yaml": "rules:\n  - id: review-to-rule.require-tenant-scoped-invoice-query\n    message: Invoice queries must include tenant scope; use the accepted tenantId-filtered form.\n    severity: ERROR\n    languages: [typescript]\n    metadata:\n      source: review-to-rule\n      generator: review-to-rule@0.2.0\n      review: gitlab.corp.example/acme/billing!482#note_189234\n    pattern: $DB.invoice.findMany()\n    paths:\n      include: [src/invoices.ts]\n      exclude: [node_modules/**, dist/**, build/**, .git/**, '**/generated/**', '**/fixtures/**']\n",
     "include": ["src/invoices.ts"],
     "exclude": [
       "node_modules/**",

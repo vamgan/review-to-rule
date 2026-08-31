@@ -1,6 +1,6 @@
 {
   "name": "review-to-rule",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Turn resolved review feedback into independently validated Semgrep rules.",
   "type": "module",
   "license": "MIT",
