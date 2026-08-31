@@ -176,9 +176,12 @@ describe("built public CLI", () => {
       ).checks;
       expect(checks).toEqual(
         expect.arrayContaining([
-          { name: "gh", status: "skip" },
-          { name: "github-auth", status: "skip" },
-          { name: "provider-credential", status: "skip" },
+          expect.objectContaining({ name: "gh", status: "skip" }),
+          expect.objectContaining({ name: "github-auth", status: "skip" }),
+          expect.objectContaining({
+            name: "provider-credential",
+            status: "skip",
+          }),
         ]),
       );
     },
