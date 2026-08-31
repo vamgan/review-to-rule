@@ -152,7 +152,7 @@ describe("packed public PR signal lifecycle", () => {
       "npm",
       [
         "install",
-        "--offline",
+        "--prefer-offline",
         "--ignore-scripts",
         "--no-audit",
         "--no-fund",

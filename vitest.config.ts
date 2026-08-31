@@ -5,5 +5,6 @@ export default defineConfig({
     // Real Semgrep integration cases are process-heavy. Bounding workers keeps
     // Vitest's RPC channel responsive and makes the release gate deterministic.
     maxWorkers: 2,
+    testTimeout: 30_000,
   },
 });

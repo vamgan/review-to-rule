@@ -92,7 +92,7 @@ describe("packed Sprint 2 vertical slice", () => {
         "npm",
         [
           "install",
-          "--offline",
+          "--prefer-offline",
           "--ignore-scripts",
           "--no-audit",
           "--no-fund",

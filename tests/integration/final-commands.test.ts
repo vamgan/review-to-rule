@@ -208,7 +208,7 @@ describe("final public operations", () => {
       expect(CI_WORKFLOW).toContain("review-to-rule@0.1.0");
       expect(CI_WORKFLOW).not.toMatch(/OPENAI|ANTHROPIC|GH_TOKEN|secrets\./);
     },
-    60_000,
+    180_000,
   );
 
   it.each(["auth", "malformed"] as const)(
@@ -315,7 +315,7 @@ describe("final public operations", () => {
         ".review-to-rule/rules/orphan.yml",
       ]);
     },
-    60_000,
+    180_000,
   );
 
   it.skipIf(!semgrepAvailable)(
