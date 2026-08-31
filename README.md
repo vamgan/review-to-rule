@@ -27,11 +27,25 @@ From the repository you want to protect:
 
 ```bash
 cd your-repository
+
+# Claude Code
+npx skills add vamgan/review-to-rule \
+  --skill review-to-rule-write \
+  --agent claude-code \
+  --yes
+
+# Codex
+npx skills add vamgan/review-to-rule \
+  --skill review-to-rule-write \
+  --agent codex \
+  --yes
+
+# Or every supported agent in this project
 npx skills add vamgan/review-to-rule --all
 ```
 
-This installs the companion skill for Codex, Claude Code, Cursor, Gemini CLI,
-OpenCode, Windsurf, and the other agents detected by the installer.
+The all-agent option also covers Cursor, Gemini CLI, OpenCode, Windsurf, and the
+other agents detected by the installer.
 
 Install the CLI once, then let `doctor` tell you what is missing:
 
