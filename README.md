@@ -45,7 +45,14 @@ npm install --global review-to-rule
 Want the unreleased edge instead? Install directly from GitHub with
 `npm install --global github:vamgan/review-to-rule`.
 
-Then check the local prerequisites:
+Check the local prerequisites first:
+
+```bash
+review-to-rule doctor
+```
+
+If `doctor` reports that the GitHub CLI is not authenticated, sign in and run
+the check again:
 
 ```bash
 gh auth login
@@ -76,10 +83,21 @@ Install the companion skill into **Claude Code, Codex, Cursor, Gemini CLI, OpenC
 npx skills add vamgan/review-to-rule --all
 ```
 
-Install globally instead of only in the current project:
+Install globally in every agent that supports user-level skills:
 
 ```bash
 npx skills add vamgan/review-to-rule --all --global
+```
+
+Eve and PromptScript support project-local skills only, so the installer reports
+those two as unsupported during an all-agent global install. To add them, run
+this from the relevant project root:
+
+```bash
+npx skills add vamgan/review-to-rule \
+  --skill review-to-rule-write \
+  --agent eve promptscript \
+  --yes
 ```
 
 One agent only:
