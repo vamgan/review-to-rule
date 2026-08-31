@@ -1,0 +1,73 @@
+{
+  "name": "review-to-rule",
+  "version": "0.1.0",
+  "description": "Turn resolved review feedback into independently validated Semgrep rules.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vamgan/review-to-rule.git"
+  },
+  "homepage": "https://github.com/vamgan/review-to-rule#readme",
+  "bugs": {
+    "url": "https://github.com/vamgan/review-to-rule/issues"
+  },
+  "keywords": [
+    "semgrep",
+    "code-review",
+    "static-analysis",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "review-to-rule": "dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "docs",
+    ".agents/skills/review-to-rule-write/SKILL.md",
+    "README.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/set-bin-mode.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "vitest run tests/e2e tests/evaluation",
+    "test:smoke": "npm run build && node scripts/package-smoke.mjs",
+    "test:ci-bootstrap": "npm run build --silent && node scripts/verify-ci-bootstrap.mjs",
+    "demo": "npm run build --silent && node dist/cli.js generate https://github.com/acme/clock/pull/42#discussion_r1001 --fixture injected-clock",
+    "evaluate": "npm run build --silent && node dist/evaluate.js",
+    "validate": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:smoke",
+    "release:check": "npm run format:check && npm run typecheck && npm run lint && npm test && npm run evaluate && npm run build && npm run test:smoke && npm run test:ci-bootstrap && npm run demo -- --json && npm pack --dry-run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "commander": "^14.0.1",
+    "openai": "^7.8.0",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.34.0",
+    "@types/node": "^24.3.0",
+    "eslint": "^9.34.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.41.0",
+    "vitest": "^3.2.4"
+  }
+}

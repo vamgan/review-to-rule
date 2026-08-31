@@ -1,0 +1,51 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install semgrep==1.175.0
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build
+      - run: npm run test:smoke
+      - run: npm run demo -- --json | jq -e '.schemaVersion == 1 and .status == "success"'
+      - run: >-
+          npm run evaluate | jq -e '.schemaVersion == 1 and .ok == true and
+          (.cases | length == 12) and all(.cases[]; if .expected == "success"
+          then .ok == true and .status == "success" and .exitCode == 0 and
+          .validation.passed == true and .validation.failedChecks == 0 else
+          .ok == true and .status == "refused" and .exitCode == 2 and
+          .validation == null end)'
+  live-read-only-github:
+    if: ${{ vars.REVIEW_TO_RULE_LIVE_URL != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Sanitized live GitHub read-only evidence gate
+        env:
+          REVIEW_TO_RULE_LIVE_URL: ${{ vars.REVIEW_TO_RULE_LIVE_URL }}
+          GH_TOKEN: ${{ github.token }}
+        run: npm test -- tests/integration/github-live.test.ts
