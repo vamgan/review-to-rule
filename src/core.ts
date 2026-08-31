@@ -289,11 +289,16 @@ export async function applyReviewLearningBundle(
       );
 
     const runner = options.runner ?? new ProcessCommandRunner();
-    const repositoryWarnings = await verifyRepositoryIdentity({
-      repositoryDir: options.repositoryDir,
-      runner,
-      source: bundle.source,
-    });
+    const repositoryWarnings =
+      options.repositorySource === "fixture"
+        ? [
+            "Synthetic fixture mode does not assert the fixture source against a repository origin.",
+          ]
+        : await verifyRepositoryIdentity({
+            repositoryDir: options.repositoryDir,
+            runner,
+            source: bundle.source,
+          });
     failureContext.warnings.push(...repositoryWarnings);
     const base = {
       schemaVersion: 1 as const,

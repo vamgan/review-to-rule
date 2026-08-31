@@ -132,6 +132,49 @@ function proposalFailure(input: {
   };
 }
 
+function confidenceRefusal(input: {
+  source: GenerationResult["source"];
+  correction: GenerationResult["correction"];
+  enforceability: GenerationResult["enforceability"];
+  warnings: string[];
+  provider: { name: string; model: string };
+  repository: { path: string; source: string };
+  invocation: string;
+  floor: number;
+}): Outcome {
+  const confidence = input.enforceability?.confidence ?? 0;
+  const refusal = new RefusalError(
+    `Analysis confidence ${confidence.toFixed(2)} is below the required ${input.floor.toFixed(2)}.`,
+  );
+  return {
+    exitCode: refusal.code,
+    result: generationResultSchema.parse({
+      schemaVersion: 1,
+      status: "refused",
+      source: input.source,
+      correction: input.correction,
+      enforceability: input.enforceability,
+      rule: null,
+      validation: null,
+      matches: [],
+      plannedFiles: [],
+      writtenFiles: [],
+      pullRequest: null,
+      nextCommand: input.invocation,
+      warnings: input.warnings,
+      errors: [
+        {
+          kind: refusal.kind,
+          message: refusal.message,
+          remediation: refusal.remediation,
+        },
+      ],
+      provider: input.provider,
+      repository: input.repository,
+    }),
+  };
+}
+
 function buildReviewLearningBundle(input: {
   reviewUrl: string;
   reconstructed: ReturnType<typeof reconstruct>;
@@ -424,6 +467,10 @@ export async function generate(
         : []),
     ];
     const invocation = `review-to-rule generate ${shellQuote(reviewUrl)}${options.fixture ? ` --fixture ${shellQuote(options.fixture)}` : ""}`;
+    const providerInfo = options.providerInfo ?? {
+      name: fixtureName ? "fake" : "injected",
+      model: fixtureName ? "deterministic-fixture" : "configured",
+    };
     const applyOptions = {
       repositoryDir: repositoryDir ?? process.cwd(),
       repositorySource,
@@ -453,10 +500,7 @@ export async function generate(
         ? { matchLimit: options.matchLimit }
         : {}),
       ...(options.confirmation ? { confirmation: options.confirmation } : {}),
-      providerInfo: options.providerInfo ?? {
-        name: fixtureName ? "fake" : "injected",
-        model: fixtureName ? "deterministic-fixture" : "configured",
-      },
+      providerInfo,
       invocation,
       ...(options.allowOpenPr ? { allowOpenReview: true } : {}),
       ...(options.allowUnresolved ? { allowUnresolved: true } : {}),
@@ -466,6 +510,22 @@ export async function generate(
           ? { onInterrupt: repositoryCleanup }
           : {}),
     };
+
+    const confidenceFloor = options.confidenceFloor ?? 0.8;
+    if (decision.enforceable && decision.confidence < confidenceFloor)
+      return confidenceRefusal({
+        source: reconstructed.evidence,
+        correction: reconstructed.candidate,
+        enforceability: decision,
+        warnings: baseWarnings,
+        provider: providerInfo,
+        repository: {
+          path: repositoryDir ?? process.cwd(),
+          source: repositorySource,
+        },
+        invocation,
+        floor: confidenceFloor,
+      });
 
     if (!decision.enforceable) {
       const bundle = buildReviewLearningBundle({
