@@ -47,12 +47,10 @@ npx skills add vamgan/review-to-rule --all
 The all-agent option also covers Cursor, Gemini CLI, OpenCode, Windsurf, and the
 other agents detected by the installer.
 
-Install the CLI once, then let `doctor` tell you what is missing:
-
-```bash
-npm install --global review-to-rule
-review-to-rule doctor
-```
+No separate CLI installation is required. The skill uses an existing
+`review-to-rule` binary when available and otherwise runs the published package
+through `npx`. It starts with `doctor`, which reports missing Node, Semgrep, Git,
+GitHub authentication, or provider setup before generation begins.
 
 If `doctor` reports that GitHub is not authenticated, run `gh auth login`. For
 live rule generation, provide one model credential:
@@ -161,6 +159,13 @@ can become a rule. Subjective, behavioral, ambiguous, or overly broad feedback
 produces a useful refusal instead of a fragile guardrail.
 
 ## Use the CLI directly
+
+For direct terminal use—not required by the agent skill—install the CLI once:
+
+```bash
+npm install --global review-to-rule
+review-to-rule doctor
+```
 
 ```bash
 # Preview one rule; writes nothing
