@@ -12,6 +12,10 @@
   "bugs": {
     "url": "https://github.com/vamgan/review-to-rule/issues"
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "keywords": [
     "semgrep",
     "code-review",
@@ -40,6 +44,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/set-bin-mode.mjs",
+    "prepare": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "format:check": "prettier --check .",
