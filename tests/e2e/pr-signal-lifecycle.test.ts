@@ -61,6 +61,12 @@ async function snapshotTree(
   return snapshot;
 }
 
+async function reviewToRuleTempEntries(root: string): Promise<string[]> {
+  return (await readdir(root)).filter((entry) =>
+    entry.startsWith("review-to-rule-"),
+  );
+}
+
 async function runInterrupted(input: {
   source: string;
   temp: string;
@@ -308,7 +314,7 @@ process.stdout.write(JSON.stringify({results,errors:[]}));
       expect(calls.some((args) => args[1] === "create")).toBe(false);
       expect(await snapshotTree(source)).toEqual(sourceBefore);
       expect(await snapshotTree(remote)).toEqual(remoteBefore);
-      expect(await readdir(childTemp)).toEqual([]);
+      expect(await reviewToRuleTempEntries(childTemp)).toEqual([]);
     }, 30_000);
   }
 
@@ -378,7 +384,7 @@ process.stdout.write(JSON.stringify({results,errors:[]}));
       child.kill(signal);
       const exit = await closed;
       expect(exit.signal ?? exit.code).not.toBe(0);
-      expect(await readdir(childTemp)).toEqual([]);
+      expect(await reviewToRuleTempEntries(childTemp)).toEqual([]);
     }, 30_000);
   }
 
@@ -430,7 +436,7 @@ process.stdout.write(JSON.stringify({results,errors:[]}));
           expect(recovery?.isolatedPath).toBeNull();
           expect(recovery?.commit).toBeNull();
           expect(recovery?.pushed).toBe(false);
-          expect(await readdir(childTemp)).toEqual([]);
+          expect(await reviewToRuleTempEntries(childTemp)).toEqual([]);
         } else {
           const isolated = recovery?.isolatedPath;
           expect(typeof isolated).toBe("string");

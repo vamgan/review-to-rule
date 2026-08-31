@@ -137,7 +137,7 @@ function buildReviewLearningBundle(input: {
   reconstructed: ReturnType<typeof reconstruct>;
   decision: EnforceabilityDecision;
   rule: GeneratedRuleProposal | null;
-  allowed?: string;
+  fixtures: { before: string; after: string; allowed?: string };
   warnings: string[];
 }): ReviewLearningBundle {
   const { evidence, candidate } = input.reconstructed;
@@ -207,11 +207,7 @@ function buildReviewLearningBundle(input: {
     correction: candidate,
     enforceability: input.decision,
     rule: input.rule,
-    fixtures: {
-      before: candidate.before,
-      after: candidate.after,
-      ...(input.allowed !== undefined ? { allowed: input.allowed } : {}),
-    },
+    fixtures: input.fixtures,
     provenance: evidence.provenance,
     warnings: input.warnings,
   });
@@ -242,11 +238,19 @@ export async function generate(
       : undefined;
     let repositorySource = repositoryDir ? "explicit" : "fixture";
     let reconstructed: ReturnType<typeof reconstruct>;
-    let allowed: string | undefined;
+    let validationFixtures: {
+      before: string;
+      after: string;
+      allowed?: string;
+    };
 
     if (fixtureName) {
       const fixture = getOfflineCase(fixtureName);
-      allowed = fixture.allowed;
+      validationFixtures = {
+        before: fixture.before,
+        after: fixture.after,
+        allowed: fixture.allowed,
+      };
       reconstructed = reconstruct({
         owner: parsedUrl.owner,
         repository: parsedUrl.repository,
@@ -383,6 +387,10 @@ export async function generate(
         ],
         contextLines: options.contextLines ?? 3,
       });
+      validationFixtures = {
+        before: reconstructed.candidate.before,
+        after: reconstructed.candidate.after,
+      };
     }
 
     const provider = options.provider ?? new FakeProvider();
@@ -465,7 +473,7 @@ export async function generate(
         reconstructed,
         decision,
         rule: null,
-        ...(allowed !== undefined ? { allowed } : {}),
+        fixtures: validationFixtures,
         warnings: baseWarnings,
       });
       return await applyReviewLearningBundle(bundle, {
@@ -501,7 +509,7 @@ export async function generate(
           reconstructed,
           decision,
           rule: proposal,
-          ...(allowed !== undefined ? { allowed } : {}),
+          fixtures: validationFixtures,
           warnings: baseWarnings,
         });
         const outcome = await applyReviewLearningBundle(bundle, {
@@ -538,7 +546,9 @@ export async function generate(
         ...lastOutcome,
         result: generationResultSchema.parse({
           ...lastOutcome.result,
-          warnings: [...baseWarnings, ...attemptWarnings],
+          warnings: [
+            ...new Set([...lastOutcome.result.warnings, ...attemptWarnings]),
+          ],
         }),
       };
     return proposalFailure({

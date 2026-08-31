@@ -74,6 +74,11 @@ export interface ApplyBundleOptions {
   onInterrupt?: () => Promise<void>;
 }
 
+type FailureContext = Omit<
+  GenerationResult,
+  "schemaVersion" | "status" | "errors"
+>;
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
@@ -202,28 +207,76 @@ async function verifyRepositoryIdentity(input: {
 }
 
 export function errorOutcome(error: DomainError): Outcome {
-  const status: GenerationResult["status"] =
-    error.code === 2
-      ? "refused"
-      : error.code === 3
-        ? "validation_failed"
-        : error.code === 4
-          ? "dependency_failed"
-          : error.code === 5
-            ? "unsafe_repository"
-            : error.code === 6
-              ? "unsupported"
-              : "internal_error";
+  const status = statusForError(error);
   return { exitCode: error.code, result: emptyResult(status, error) };
+}
+
+function statusForError(error: DomainError): GenerationResult["status"] {
+  return error.code === 2
+    ? "refused"
+    : error.code === 3
+      ? "validation_failed"
+      : error.code === 4
+        ? "dependency_failed"
+        : error.code === 5
+          ? "unsafe_repository"
+          : error.code === 6
+            ? "unsupported"
+            : "internal_error";
+}
+
+function contextualErrorOutcome(
+  error: DomainError,
+  context: FailureContext,
+): Outcome {
+  return {
+    exitCode: error.code,
+    result: generationResultSchema.parse({
+      schemaVersion: 1,
+      status: statusForError(error),
+      ...context,
+      errors: [
+        {
+          kind: error.kind,
+          message: error.message,
+          remediation: error.remediation,
+        },
+      ],
+    }),
+  };
 }
 
 export async function applyReviewLearningBundle(
   input: ReviewLearningBundle,
   options: ApplyBundleOptions,
 ): Promise<Outcome> {
+  let failureContext: FailureContext | undefined;
   try {
     const bundle = reviewLearningBundleSchema.parse(input);
     const evidence = reviewLearningBundleToEvidence(bundle);
+    failureContext = {
+      source: evidence,
+      correction: bundle.correction,
+      enforceability: bundle.enforceability,
+      rule: bundle.rule,
+      validation: null,
+      matches: [],
+      plannedFiles: [],
+      writtenFiles: [],
+      pullRequest: null,
+      nextCommand: null,
+      warnings: [...bundle.warnings, ...(options.warnings ?? [])],
+      provider: options.providerInfo ?? {
+        name: "bundle",
+        model: "precomputed",
+      },
+      repository: {
+        path: options.repositoryDir,
+        source: options.repositorySource ?? "explicit",
+      },
+      preview: null,
+      approval: null,
+    };
     if (!bundle.source.change.merged && !options.allowOpenReview)
       throw new RefusalError(
         "The supplied code review is not marked merged.",
@@ -241,6 +294,7 @@ export async function applyReviewLearningBundle(
       runner,
       source: bundle.source,
     });
+    failureContext.warnings.push(...repositoryWarnings);
     const base = {
       schemaVersion: 1 as const,
       source: evidence,
@@ -251,11 +305,7 @@ export async function applyReviewLearningBundle(
       writtenFiles: [],
       pullRequest: null,
       nextCommand: null,
-      warnings: [
-        ...bundle.warnings,
-        ...repositoryWarnings,
-        ...(options.warnings ?? []),
-      ],
+      warnings: failureContext.warnings,
       errors: [],
     };
     if (!bundle.enforceability.enforceable) {
@@ -310,6 +360,7 @@ export async function applyReviewLearningBundle(
       ...(options.include?.length ? { include: options.include } : {}),
       ...(options.exclude?.length ? { exclude: options.exclude } : {}),
     });
+    failureContext.rule = proposal;
     const validation = await validateWithSemgrep(
       {
         proposal,
@@ -325,6 +376,8 @@ export async function applyReviewLearningBundle(
       runner,
       options.attempt ?? 1,
     );
+    failureContext.validation = validation;
+    failureContext.matches = validation.matches;
 
     const outputDir = options.outputDir ?? ".review-to-rule";
     assertSafeExactPath(outputDir, "output directory");
@@ -496,6 +549,9 @@ export async function applyReviewLearningBundle(
       broadnessWarnings,
       suggestedWriteCommand: writeCommand,
     };
+    failureContext.plannedFiles = plan.ownedFiles;
+    failureContext.nextCommand = options.invocation;
+    failureContext.preview = preview;
     let writtenFiles: string[] = [];
     let approval: { mode: "interactive" | "yes"; confirmed: boolean } | null =
       null;
@@ -514,6 +570,7 @@ export async function applyReviewLearningBundle(
           );
         approval = { mode: "interactive", confirmed: true };
       } else approval = { mode: "yes", confirmed: true };
+      failureContext.approval = approval;
       writtenFiles = await commitArtifactPlan({
         repositoryDir: options.repositoryDir,
         plan,
@@ -548,14 +605,17 @@ export async function applyReviewLearningBundle(
       }),
     };
   } catch (error) {
-    if (error instanceof DomainError) return errorOutcome(error);
-    return errorOutcome(
-      new DomainError(
-        redact(error instanceof Error ? error.message : String(error)),
-        ExitCode.internal,
-        "internal",
-        "Run again with --debug and report the sanitized diagnostic.",
-      ),
-    );
+    const domainError =
+      error instanceof DomainError
+        ? error
+        : new DomainError(
+            redact(error instanceof Error ? error.message : String(error)),
+            ExitCode.internal,
+            "internal",
+            "Run again with --debug and report the sanitized diagnostic.",
+          );
+    return failureContext
+      ? contextualErrorOutcome(domainError, failureContext)
+      : errorOutcome(domainError);
   }
 }
