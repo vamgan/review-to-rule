@@ -29,6 +29,12 @@ describe("repository and path hardening", () => {
     expect(normalizeGitRemote(remote)).toBe("github.com/acme/repo");
   });
 
+  it("normalizes nested enterprise repository groups", () => {
+    expect(
+      normalizeGitRemote("git@gitlab.corp.example:platform/payments/api.git"),
+    ).toBe("gitlab.corp.example/platform/payments/api");
+  });
+
   it.each([
     "src/*.ts",
     "src/a?.ts",

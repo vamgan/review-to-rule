@@ -198,7 +198,7 @@ process.stdout.write(JSON.stringify(body));
         confidence: 0.98,
       };
       const ruleId = "review-to-rule.inject-clock-recorded";
-      const yaml = `rules:\n  - id: ${ruleId}\n    message: Inject Clock\n    severity: WARNING\n    languages: [typescript]\n    metadata: {source: review-to-rule, generator: review-to-rule@0.1.0, review: supplied-review}\n    pattern: Date.now()\n    paths:\n      include: [clock.ts]\n      exclude: [node_modules/**, dist/**, build/**, .git/**, "**/generated/**", "**/fixtures/**"]\n`;
+      const yaml = `rules:\n  - id: ${ruleId}\n    message: Inject Clock\n    severity: WARNING\n    languages: [typescript]\n    metadata: {source: review-to-rule, generator: review-to-rule@0.2.0, review: supplied-review}\n    pattern: Date.now()\n    paths:\n      include: [clock.ts]\n      exclude: [node_modules/**, dist/**, build/**, .git/**, "**/generated/**", "**/fixtures/**"]\n`;
       const proposal = {
         id: ruleId,
         title: "Inject Clock",

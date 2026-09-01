@@ -16,6 +16,12 @@ try {
     throw new Error("packed CLI missing");
   if (!listing.includes("package/.agents/skills/review-to-rule-write/SKILL.md"))
     throw new Error("packed write skill missing");
+  if (
+    !listing.includes(
+      "package/.agents/skills/review-to-rule-write/references/review-bundle.md",
+    )
+  )
+    throw new Error("packed review-bundle skill reference missing");
   const installDir = join(dir, "installed-consumer");
   execFileSync(
     "npm",
@@ -44,6 +50,18 @@ try {
   execFileSync(process.execPath, [installedCli, "evidence", "--help"], {
     stdio: "ignore",
   });
+  execFileSync(process.execPath, [installedCli, "apply", "--help"], {
+    stdio: "ignore",
+  });
+  execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      "const core = await import('review-to-rule/core'); if (typeof core.applyReviewLearningBundle !== 'function') process.exit(1);",
+    ],
+    { cwd: installDir, stdio: "ignore" },
+  );
   const fixture = spawnSync(
     process.execPath,
     [

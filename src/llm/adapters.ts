@@ -9,6 +9,7 @@ import type {
   RuleRequest,
   StructuredProvider,
 } from "./provider.js";
+import { GENERATOR_TAG } from "../version.js";
 
 type OutputKind = "decision" | "proposal";
 const schemas = { decision: decisionSchema, proposal: proposalSchema } as const;
@@ -38,7 +39,7 @@ const system =
 
 function proposalPrompt(request: RuleRequest): string {
   return JSON.stringify({
-    task: "Produce exactly one local Semgrep rule proposal. Its YAML must contain exactly one rule whose id, message, severity, language, include, and exclude equal the enclosing JSON fields; metadata must be {source:'review-to-rule',generator:'review-to-rule@0.1.0',review:'supplied-review'}; use one supported pattern operator and never autofix.",
+    task: `Produce exactly one local Semgrep rule proposal. Its YAML must contain exactly one rule whose id, message, severity, language, include, and exclude equal the enclosing JSON fields; metadata must be {source:'review-to-rule',generator:'${GENERATOR_TAG}',review:'supplied-review'}; use one supported pattern operator and never autofix.`,
     decision: request.decision,
     candidate: request.candidate,
     failedCheck: request.failedCheck,

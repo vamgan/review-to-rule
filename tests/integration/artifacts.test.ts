@@ -18,6 +18,7 @@ import {
 } from "../../src/domain/schemas.js";
 import { ProcessCommandRunner } from "../../src/utils/command.js";
 import { planManagedPolicyUpdate } from "../../src/policy.js";
+import { canonicalReviewSourceIdentity } from "../../src/source.js";
 
 const proposal = proposalSchema.parse({
   id: "review-to-rule.inject-clock",
@@ -71,6 +72,37 @@ async function repository(): Promise<string> {
 }
 
 describe("transactional artifact persistence", () => {
+  it("plans artifacts from a provider-neutral enterprise review URL", async () => {
+    const root = await repository();
+    const sourceUrl =
+      "https://gitlab.corp.example/acme/repo/-/merge_requests/1#note_2";
+    const agentEvidence = reviewEvidenceSchema.parse({
+      ...evidence,
+      source: { reviewSystem: "gitlab", url: sourceUrl },
+      repository: {
+        host: "gitlab.corp.example",
+        owner: "acme",
+        name: "repo",
+      },
+    });
+    const plan = await planArtifacts({
+      repositoryDir: root,
+      outputDir: ".review-to-rule",
+      sourceUrl,
+      sourceIdentity: canonicalReviewSourceIdentity(sourceUrl),
+      proposal,
+      evidence: agentEvidence,
+      before: "Date.now()\n",
+      after: "clock.now()\n",
+      approvalMode: "yes",
+      policyTarget: "neither",
+    });
+    expect(plan.collision).toBe("new");
+    expect(plan.files.map((file) => file.path)).toContain(
+      ".review-to-rule/rules/review-to-rule.inject-clock.yml",
+    );
+  });
+
   it("writes the complete versioned set and records hashes", async () => {
     const root = await repository();
     const plan = await planArtifacts({

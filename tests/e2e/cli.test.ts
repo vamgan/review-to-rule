@@ -22,6 +22,10 @@ import {
 const root = new URL("../..", import.meta.url).pathname;
 const cli = new URL("../../dist/cli.js", import.meta.url).pathname;
 const review = "https://github.com/acme/clock/pull/42#discussion_r1001";
+const reviewBundle = new URL(
+  "../../examples/review-bundle/gitlab-tenant-scope.json",
+  import.meta.url,
+).pathname;
 const env = {
   ...process.env,
   GITHUB_TOKEN: undefined,
@@ -76,13 +80,20 @@ describe("built public CLI", () => {
       "--config",
     ])
       expect(help.stdout).toContain(flag);
-    expect((await run(["--version"])).stdout.trim()).toBe("0.1.0");
+    expect((await run(["--version"])).stdout.trim()).toBe("0.2.0");
     const replayHelp = await run(["replay", "--help"]);
     expect(replayHelp.status).toBe(0);
     expect(replayHelp.stdout).toContain("<manifest-path>");
     const evidenceHelp = await run(["evidence", "--help"]);
     expect(evidenceHelp.status).toBe(0);
     expect(evidenceHelp.stdout).toContain("<review-comment-url>");
+    const applyHelp = await run(["apply", "--help"]);
+    expect(applyHelp.status).toBe(0);
+    expect(applyHelp.stdout).toContain("<bundle-path>");
+    expect(applyHelp.stdout).not.toContain("--provider");
+    const doctorHelp = await run(["doctor", "--help"]);
+    expect(doctorHelp.status).toBe(0);
+    expect(doctorHelp.stdout).toContain("--agent");
     expect(statSync(cli).mode & 0o111).not.toBe(0);
   });
 
@@ -91,14 +102,29 @@ describe("built public CLI", () => {
       ? "makes root and explicit generate forms deeply equivalent"
       : `makes root and explicit generate forms deeply equivalent (${semgrepSkipReason})`,
     async () => {
-      const [explicit, alias] = await Promise.all([
-        run(["generate", review, "--fixture", "injected-clock", "--json"]),
-        run([review, "--fixture", "injected-clock", "--json"]),
+      // Real Semgrep processes share user-level cache and settings files. Keep
+      // this equivalence check sequential so the test follows the suite's
+      // single-worker contract on clean CI runners as well as locally.
+      const explicit = await run([
+        "generate",
+        review,
+        "--fixture",
+        "injected-clock",
+        "--json",
       ]);
-      expect(explicit.status).toBe(0);
-      expect(alias.status).toBe(0);
-      expect(JSON.parse(explicit.stdout)).toEqual(JSON.parse(alias.stdout));
-      generationResultSchema.parse(JSON.parse(explicit.stdout));
+      const alias = await run([
+        review,
+        "--fixture",
+        "injected-clock",
+        "--json",
+      ]);
+      expect(explicit.status, explicit.stderr || explicit.stdout).toBe(0);
+      expect(alias.status, alias.stderr || alias.stdout).toBe(0);
+      const explicitResult = generationResultSchema.parse(
+        JSON.parse(explicit.stdout),
+      );
+      expect(explicitResult).toEqual(JSON.parse(alias.stdout));
+      expect(explicitResult.repository?.source).toBe("fixture");
       const human = await run([
         "generate",
         review,
@@ -110,6 +136,69 @@ describe("built public CLI", () => {
       );
       expect(human.stdout).toContain("Suggested write command:");
       expect(human.stdout).toContain("--write --policy-target 'neither'");
+    },
+    60_000,
+  );
+
+  it.skipIf(!semgrepAvailable)(
+    semgrepAvailable
+      ? "validates host-agent evidence without GitHub or model credentials"
+      : `validates host-agent evidence (${semgrepSkipReason})`,
+    async () => {
+      const repository = mkdtempSync(join(tmpdir(), "rtr-agent-cli-"));
+      mkdirSync(join(repository, "src"), { recursive: true });
+      writeFileSync(
+        join(repository, "src/invoices.ts"),
+        "const invoices = db.invoice.findMany({ where: { tenantId } });\n",
+      );
+      execFileSync("git", ["init", "-q"], { cwd: repository });
+      execFileSync("git", ["config", "user.email", "test@example.com"], {
+        cwd: repository,
+      });
+      execFileSync("git", ["config", "user.name", "Test"], {
+        cwd: repository,
+      });
+      execFileSync("git", ["add", "src/invoices.ts"], { cwd: repository });
+      execFileSync("git", ["commit", "-qm", "accepted correction"], {
+        cwd: repository,
+      });
+
+      const generated = await run(
+        ["apply", reviewBundle, "--repo-dir", repository, "--json"],
+        { cwd: repository },
+      );
+      expect(generated.status, generated.stderr).toBe(0);
+      const result = generationResultSchema.parse(JSON.parse(generated.stdout));
+      expect(result.provider).toEqual({
+        name: "host-agent",
+        model: "agent-context",
+      });
+      expect(result.source?.source?.reviewSystem).toBe("gitlab");
+      expect(
+        result.validation?.checks.every((check) => check.status !== "failed"),
+      ).toBe(true);
+      expect(existsSync(join(repository, ".review-to-rule"))).toBe(false);
+
+      const doctor = await run(
+        ["doctor", "--agent", "--repo-dir", repository, "--json"],
+        { cwd: repository },
+      );
+      expect(doctor.status, doctor.stderr).toBe(0);
+      const checks = (
+        JSON.parse(doctor.stdout) as {
+          checks: Array<{ name: string; status: string }>;
+        }
+      ).checks;
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "gh", status: "skip" }),
+          expect.objectContaining({ name: "github-auth", status: "skip" }),
+          expect.objectContaining({
+            name: "provider-credential",
+            status: "skip",
+          }),
+        ]),
+      );
     },
     60_000,
   );

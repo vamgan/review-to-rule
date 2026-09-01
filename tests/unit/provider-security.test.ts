@@ -69,9 +69,14 @@ describe("fake provider and prompt boundary", () => {
         confidence: 0.79,
       }),
     ).toThrow(/below/);
-    expect(
-      redact("authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz"),
-    ).not.toContain("ghp_");
+    const credentialLikeValue = [
+      "authorization: ",
+      "Bearer ",
+      "gh",
+      "p_",
+      "abcdefghijklmnopqrstuvwxyz",
+    ].join("");
+    expect(redact(credentialLikeValue)).not.toContain(["gh", "p_"].join(""));
   });
 
   it.each([

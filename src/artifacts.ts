@@ -24,7 +24,10 @@ import {
 } from "./security/path.js";
 import type { CommandRunner } from "./utils/command.js";
 import type { PolicyUpdate } from "./policy.js";
-import { canonicalReviewIdentity, parseReviewUrl } from "./github/url.js";
+import { canonicalReviewSourceIdentity } from "./source.js";
+import { GENERATOR_VERSION } from "./version.js";
+
+export { GENERATOR_VERSION } from "./version.js";
 
 const sha256 = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -56,8 +59,6 @@ export const artifactManifestSchema = z
   })
   .strict();
 export type ArtifactManifest = z.infer<typeof artifactManifestSchema>;
-export const GENERATOR_VERSION = "0.1.0";
-
 export interface CanonicalManifestLayout {
   outputDir: string;
   artifactId: string;
@@ -195,10 +196,12 @@ export function parseCanonicalArtifactManifest(
   manifestPath: string,
 ): { manifest: ArtifactManifest; layout: CanonicalManifestLayout } {
   const manifest = artifactManifestSchema.parse(value);
-  const parsedSource = parseReviewUrl(manifest.source.url);
-  if (manifest.source.identity !== canonicalReviewIdentity(parsedSource))
+  if (
+    manifest.source.identity !==
+    canonicalReviewSourceIdentity(manifest.source.url)
+  )
     throw new UnsafeRepositoryError(
-      "Manifest source identity is not canonical for its supported review URL.",
+      "Manifest source identity is not canonical for its review URL.",
     );
   return { manifest, layout: canonicalManifestLayout(manifest, manifestPath) };
 }
@@ -415,10 +418,9 @@ export async function planArtifacts(input: {
   policyUpdates?: PolicyUpdate[];
   provisional?: boolean;
 }): Promise<ArtifactPlan> {
-  const parsedSource = parseReviewUrl(input.sourceUrl);
-  if (input.sourceIdentity !== canonicalReviewIdentity(parsedSource))
+  if (input.sourceIdentity !== canonicalReviewSourceIdentity(input.sourceUrl))
     throw new UnsafeRepositoryError(
-      "Artifact source identity is not canonical for its supported review URL.",
+      "Artifact source identity is not canonical for its review URL.",
     );
   assertSafeExactPath(input.outputDir, "output directory");
   const outputState = await inspectContainedPathNoFollow(

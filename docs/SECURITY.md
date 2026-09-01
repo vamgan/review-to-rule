@@ -1,17 +1,63 @@
 # Security model
 
-Review prose, replies, patches, source, provider responses, GitHub JSON, Semgrep JSON, configuration, and filesystem paths cross explicit validation boundaries. Review content is bounded, labeled inert, and hashed before an official provider adapter receives only the selected correction. Credentials use dedicated environment variables and diagnostics are redacted.
+Review prose, source excerpts, bundle JSON, model output, Semgrep output,
+configuration, and filesystem paths are untrusted inputs. Every one crosses a
+bounded schema or path-safety boundary before it influences a write.
 
-`gh` commands are fixed read-only REST/GraphQL argument arrays. No shell is involved. Open, unresolved, or unmapped evidence is refused unless its dedicated opt-in flag is present. Repository origins are normalized across HTTPS and SSH before local content is trusted. Historical reads try the local object database, one narrow hook-disabled fetch, then a read-only content endpoint.
+## Credentials and data flow
 
-Writes reject absolute/traversing paths, exact paths with glob metacharacters, unsafe control/format/separator characters, symlinked ancestors, dirty overlap, changed-after-preview policy files, malformed markers, and injected I/O failures. Discovery, collision planning, replay, and journal recovery inspect every path component without following symlinks; a symlinked artifact root is reported but never traversed. The transaction durably journals each backup/replacement transition, restores backups on exceptions or SIGINT/SIGTERM, and recovers a journal left by abrupt process termination before collision planning. Generated artifacts never become active automatically.
+Agent mode uses the host agent's existing source-control tools. Authentication
+stays in those tools: the bundle must not contain bearer tokens, API keys,
+cookies, authorization headers, environment values, or URLs with embedded
+credentials. Bundle files must be regular non-symlink files and are limited to
+128 KB. Review bodies and excerpts have separate size limits.
 
-Replay accepts only the complete versioned manifest shape and enforces exact owned/hashed path-set equality, canonical artifact root and fixture identity, explicit semantic policy consent, selected policy membership, parsed versioned evidence, a supported GitHub/GitHub Enterprise review URL with canonical identity, valid generator SemVer, and equality between the manifest rule ID and the stored single-rule YAML. Every selected managed pointer must exactly name the canonical manifest, rule directory, validation command, and replay command. Corrupt or redirected sets fail with exit 3 and no writes.
+No provider is resolved and no model credential is read by `apply` or
+`doctor --agent`. The optional standalone GitHub adapter is the only path that
+uses `gh` plus an OpenAI or Anthropic credential. It sends only bounded selected
+correction context, labels it as untrusted, validates structured output locally,
+and redacts diagnostics.
 
-Branch push, pull-request creation, and CI installation exist only behind their
-separate explicit previews and approvals. PR work occurs in an isolated clone,
-never force-pushes or merges, and retains recovery state after a committed
-partial failure. CI installation writes exactly one conflict-checked workflow.
-The project never adds comments, merges pull requests, publishes packages,
-executes target-repository package scripts, sends telemetry, or transmits
-repository policy files to a model.
+## Rule and repository validation
+
+The core accepts exactly one rule in a strict allowlisted Semgrep schema. IDs,
+message, severity, language, include paths, and exclude paths must agree between
+the structured proposal and YAML. Autofix, unknown fields, unsafe paths, and
+unsupported nested operators are rejected.
+
+Real Semgrep must accept the syntax, match the original fixture, avoid the
+accepted and allowed fixtures, survive bounded meaning-preserving mutations,
+and complete a current-repository scan below the configured match limit. The
+project never executes target repository code, builds, tests, hooks, package
+scripts, or commands found in review text.
+
+Generic review URLs use a normalized credential-free URL identity. GitHub URLs
+retain the more compact canonical comment identity for compatibility. Stored
+evidence repeats the source system and URL, and replay requires it to equal the
+manifest source.
+
+## Write safety and replay
+
+Writes reject absolute/traversing paths, globbed exact paths, control or format
+characters, symlinked ancestors, dirty overlap, malformed managed markers,
+changed-after-preview policy files, and injected I/O failures. Discovery,
+collision planning, replay, and recovery inspect every path component without
+following symlinks.
+
+The transaction durably journals backups and replacements, rolls back on
+exceptions or SIGINT/SIGTERM, and recovers an interrupted journal before later
+collision planning. Generated artifacts never become active automatically.
+
+Replay accepts only a complete versioned manifest. It enforces exact owned and
+hashed path sets, canonical fixture layout, rule ID equality, source identity,
+generator SemVer, explicit policy consent, and exact managed-pointer commands.
+Corrupt, redirected, or incomplete sets fail without writes.
+
+## External mutations
+
+Core generation never comments on a review, pushes a branch, opens or merges a
+change request, publishes a package, or installs CI. Those are separate,
+explicitly previewed workflows. The optional standalone GitHub publisher works
+in an isolated clone, stages only approved paths, and never force-pushes or
+merges. A host agent may publish to another review system only after the user
+separately approves the exact external mutation plan.

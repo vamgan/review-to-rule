@@ -1,9 +1,10 @@
 import { resolve } from "node:path";
-import { createHash } from "node:crypto";
 import {
   decisionSchema,
   generationResultSchema,
+  type EnforceabilityDecision,
   type GenerationResult,
+  type GeneratedRuleProposal,
 } from "./domain/schemas.js";
 import {
   ConfigurationError,
@@ -12,9 +13,8 @@ import {
   RefusalError,
   UnsafeRepositoryError,
   ValidationError,
-  type ExitCodeValue,
 } from "./domain/errors.js";
-import { canonicalReviewIdentity, parseReviewUrl } from "./github/url.js";
+import { parseReviewUrl } from "./github/url.js";
 import { reconstruct } from "./analysis/reconstruct.js";
 import {
   buildAnalysisRequest,
@@ -23,25 +23,21 @@ import {
   type StructuredProvider,
 } from "./llm/provider.js";
 import { ProcessCommandRunner, type CommandRunner } from "./utils/command.js";
-import { validateWithSemgrep } from "./semgrep/runner.js";
-import { applyRuleConfiguration } from "./semgrep/rule.js";
 import { getOfflineCase } from "./fixtures/cases.js";
 import { redact } from "./security/redact.js";
 import { GhGitHubClient } from "./github/client.js";
 import { readHistoricalContent, resolveRepository } from "./repository.js";
-import {
-  planArtifacts,
-  commitArtifactPlan,
-  recoverPendingTransactions,
-} from "./artifacts.js";
-import {
-  discoverPolicy,
-  planManagedPolicyUpdate,
-  resolvePolicyPaths,
-  type PolicyUpdate,
-} from "./policy.js";
 import type { PolicyTarget } from "./config.js";
-import { assertSafeExactPath } from "./security/path.js";
+import {
+  applyReviewLearningBundle,
+  errorOutcome,
+  type ConfirmationPort,
+  type Outcome,
+} from "./core.js";
+import {
+  reviewLearningBundleSchema,
+  type ReviewLearningBundle,
+} from "./review-bundle.js";
 
 export interface GenerateOptions {
   fixture?: string;
@@ -70,14 +66,6 @@ export interface GenerateOptions {
   matchLimit?: number;
   onInterrupt?: () => Promise<void>;
 }
-export interface ConfirmationPort {
-  isTTY: boolean;
-  confirm(summary: string): Promise<boolean>;
-}
-export interface Outcome {
-  result: GenerationResult;
-  exitCode: ExitCodeValue;
-}
 
 async function invokeAnalysisProvider(
   provider: StructuredProvider,
@@ -88,7 +76,7 @@ async function invokeAnalysisProvider(
   } catch (error) {
     throw new ConfigurationError(
       `Provider analysis failed: ${redact(error instanceof Error ? error.message : String(error))}`,
-      "Check the selected provider configuration and retry; credentials are never printed.",
+      "Check the selected standalone provider configuration and retry; credentials are never printed.",
     );
   }
 }
@@ -110,111 +98,169 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-const hash = (value: string) =>
-  createHash("sha256").update(value).digest("hex");
-
-function approvalPreview(input: {
-  collision: string;
-  policyTarget: string;
-  policyExplicit: boolean;
-  artifacts: Array<{
-    path: string;
-    action: string;
-    bytes: number;
-    summary: string;
-  }>;
-  policyFiles: Array<{ path: string; action: string; diff: string }>;
-  discovery: {
-    artifactState: { path: string; exists: boolean; symlink: boolean };
-    semgrepCandidates: Array<{ path: string; status: string; scope: string }>;
-    policyFiles: Array<{ path: string; managed: string; scope: string }>;
-    ambiguities: string[];
+function proposalFailure(input: {
+  source: GenerationResult["source"];
+  correction: GenerationResult["correction"];
+  enforceability: GenerationResult["enforceability"];
+  warnings: string[];
+  error: ValidationError;
+}): Outcome {
+  return {
+    exitCode: input.error.code,
+    result: generationResultSchema.parse({
+      schemaVersion: 1,
+      status: "validation_failed",
+      source: input.source,
+      correction: input.correction,
+      enforceability: input.enforceability,
+      rule: null,
+      validation: null,
+      matches: [],
+      plannedFiles: [],
+      writtenFiles: [],
+      pullRequest: null,
+      nextCommand: null,
+      warnings: input.warnings,
+      errors: [
+        {
+          kind: input.error.kind,
+          message: input.error.message,
+          remediation: input.error.remediation,
+        },
+      ],
+    }),
   };
-  broadness: string;
-  broadnessWarnings: string[];
-}): string {
-  const lines = [
-    "Complete mutation preview:",
-    `- Collision: ${input.collision}`,
-    `- Policy: ${input.policyTarget} (explicit this invocation: ${input.policyExplicit ? "yes" : "no"})`,
-    `- Scope: ${input.broadness}`,
-    `- Existing output: ${input.discovery.artifactState.path} (${input.discovery.artifactState.exists ? "present" : "absent"}${input.discovery.artifactState.symlink ? ", symlink" : ""})`,
-    "- Planned targets:",
-    ...input.artifacts.map(
-      (file) =>
-        `  - ${file.action} ${file.path} (${file.bytes} bytes; ${file.summary})`,
-    ),
-  ];
-  if (input.discovery.semgrepCandidates.length) {
-    lines.push("- Existing Semgrep candidates:");
-    for (const candidate of input.discovery.semgrepCandidates)
-      lines.push(
-        `  - ${candidate.path}: ${candidate.status} (scope ${candidate.scope})`,
-      );
-  }
-  if (input.discovery.policyFiles.length) {
-    lines.push("- Existing policy files:");
-    for (const policy of input.discovery.policyFiles)
-      lines.push(
-        `  - ${policy.path}: ${policy.managed} (scope ${policy.scope})`,
-      );
-  }
-  for (const ambiguity of input.discovery.ambiguities)
-    lines.push(`- Ambiguity: ${ambiguity}`);
-  for (const warning of input.broadnessWarnings)
-    lines.push(`- Scope warning: ${warning}`);
-  for (const policy of input.policyFiles)
-    if (policy.diff)
-      lines.push(`Policy diff (${policy.action} ${policy.path}):`, policy.diff);
-  return lines.join("\n");
 }
 
-function emptyResult(
-  status: GenerationResult["status"],
-  error?: DomainError,
-): GenerationResult {
-  return generationResultSchema.parse({
+function confidenceRefusal(input: {
+  source: GenerationResult["source"];
+  correction: GenerationResult["correction"];
+  enforceability: GenerationResult["enforceability"];
+  warnings: string[];
+  provider: { name: string; model: string };
+  repository: { path: string; source: string };
+  invocation: string;
+  floor: number;
+}): Outcome {
+  const confidence = input.enforceability?.confidence ?? 0;
+  const refusal = new RefusalError(
+    `Analysis confidence ${confidence.toFixed(2)} is below the required ${input.floor.toFixed(2)}.`,
+  );
+  return {
+    exitCode: refusal.code,
+    result: generationResultSchema.parse({
+      schemaVersion: 1,
+      status: "refused",
+      source: input.source,
+      correction: input.correction,
+      enforceability: input.enforceability,
+      rule: null,
+      validation: null,
+      matches: [],
+      plannedFiles: [],
+      writtenFiles: [],
+      pullRequest: null,
+      nextCommand: input.invocation,
+      warnings: input.warnings,
+      errors: [
+        {
+          kind: refusal.kind,
+          message: refusal.message,
+          remediation: refusal.remediation,
+        },
+      ],
+      provider: input.provider,
+      repository: input.repository,
+    }),
+  };
+}
+
+function buildReviewLearningBundle(input: {
+  reviewUrl: string;
+  reconstructed: ReturnType<typeof reconstruct>;
+  decision: EnforceabilityDecision;
+  rule: GeneratedRuleProposal | null;
+  fixtures: { before: string; after: string; allowed?: string };
+  warnings: string[];
+}): ReviewLearningBundle {
+  const { evidence, candidate } = input.reconstructed;
+  return reviewLearningBundleSchema.parse({
     schemaVersion: 1,
-    status,
-    source: null,
-    correction: null,
-    enforceability: null,
-    rule: null,
-    validation: null,
-    matches: [],
-    plannedFiles: [],
-    writtenFiles: [],
-    pullRequest: null,
-    nextCommand: null,
-    warnings: [],
-    errors: error
-      ? [
-          {
-            kind: error.kind,
-            message: error.message,
-            remediation: error.remediation,
-          },
-        ]
-      : [],
+    source: {
+      reviewSystem: "github",
+      url: input.reviewUrl,
+      repository: evidence.repository,
+      change: {
+        id: evidence.pullRequest.number,
+        baseRevision: evidence.pullRequest.baseSha,
+        headRevision: evidence.pullRequest.headSha,
+        merged: evidence.review.merged,
+        ...(evidence.pullRequest.mergedAt !== undefined
+          ? { mergedAt: evidence.pullRequest.mergedAt }
+          : {}),
+        ...(evidence.pullRequest.mergeSha !== undefined
+          ? { mergeRevision: evidence.pullRequest.mergeSha }
+          : {}),
+      },
+    },
+    review: {
+      id: evidence.review.commentId,
+      body: evidence.review.body,
+      resolved: evidence.review.resolved,
+      ...(evidence.review.path ? { path: evidence.review.path } : {}),
+      ...(evidence.review.line !== undefined
+        ? { line: evidence.review.line }
+        : {}),
+      ...(evidence.review.side !== undefined
+        ? { side: evidence.review.side }
+        : {}),
+      ...(evidence.review.createdAt
+        ? { createdAt: evidence.review.createdAt }
+        : {}),
+      ...(evidence.review.updatedAt
+        ? { updatedAt: evidence.review.updatedAt }
+        : {}),
+      root: evidence.threadRoot,
+      replies: evidence.replies,
+    },
+    snapshots: {
+      before: {
+        path: evidence.original.path,
+        revision: evidence.original.sha,
+        excerpt: evidence.original.excerpt,
+        truncated: evidence.original.truncated,
+        ...(evidence.original.startLine
+          ? { startLine: evidence.original.startLine }
+          : {}),
+        ...(evidence.original.endLine
+          ? { endLine: evidence.original.endLine }
+          : {}),
+      },
+      after: {
+        path: evidence.final.path,
+        revision: evidence.final.sha,
+        excerpt: evidence.final.excerpt,
+        truncated: evidence.final.truncated,
+        ...(evidence.final.startLine
+          ? { startLine: evidence.final.startLine }
+          : {}),
+        ...(evidence.final.endLine ? { endLine: evidence.final.endLine } : {}),
+      },
+    },
+    correction: candidate,
+    enforceability: input.decision,
+    rule: input.rule,
+    fixtures: input.fixtures,
+    provenance: evidence.provenance,
+    warnings: input.warnings,
   });
 }
 
-export function errorOutcome(error: DomainError): Outcome {
-  const status: GenerationResult["status"] =
-    error.code === 2
-      ? "refused"
-      : error.code === 3
-        ? "validation_failed"
-        : error.code === 4
-          ? "dependency_failed"
-          : error.code === 5
-            ? "unsafe_repository"
-            : error.code === 6
-              ? "unsupported"
-              : "internal_error";
-  return { exitCode: error.code, result: emptyResult(status, error) };
-}
-
+/**
+ * Optional standalone adapter: GitHub evidence retrieval plus a separately
+ * configured model are converted into the same provider-neutral bundle that
+ * the deterministic core accepts directly.
+ */
 export async function generate(
   reviewUrl: string,
   options: GenerateOptions = {},
@@ -230,19 +276,28 @@ export async function generate(
         ? "typescript-injected-clock"
         : options.fixture;
     const runner = options.runner ?? new ProcessCommandRunner();
-    let before: string;
-    let after: string;
-    let allowed: string | undefined;
     let repositoryDir = options.repositoryDir
       ? resolve(options.repositoryDir)
       : undefined;
-    let repositorySource = repositoryDir ? "explicit" : "fixture";
+    let repositorySource = fixtureName
+      ? "fixture"
+      : repositoryDir
+        ? "explicit"
+        : "fixture";
     let reconstructed: ReturnType<typeof reconstruct>;
+    let validationFixtures: {
+      before: string;
+      after: string;
+      allowed?: string;
+    };
+
     if (fixtureName) {
       const fixture = getOfflineCase(fixtureName);
-      before = fixture.before;
-      after = fixture.after;
-      allowed = fixture.allowed;
+      validationFixtures = {
+        before: fixture.before,
+        after: fixture.after,
+        allowed: fixture.allowed,
+      };
       reconstructed = reconstruct({
         owner: parsedUrl.owner,
         repository: parsedUrl.repository,
@@ -253,14 +308,14 @@ export async function generate(
           {
             path: fixture.path,
             sha: "base-fixture-sha",
-            content: before,
+            content: fixture.before,
             source: "fixture",
           },
         ],
         after: {
           path: fixture.path,
           sha: "head-fixture-sha",
-          content: after,
+          content: fixture.after,
           source: "fixture",
         },
         contextLines: options.contextLines ?? 3,
@@ -327,9 +382,6 @@ export async function generate(
           ? { allowFetch: true }
           : {}),
       });
-      before = original.content;
-      after = final.content;
-      allowed = undefined;
       reconstructed = reconstruct({
         owner: parsedUrl.owner,
         repository: parsedUrl.repository,
@@ -346,7 +398,7 @@ export async function generate(
             path: originalPath,
             sha:
               bundle.comment.original_commit_id ?? bundle.pullRequest.base.sha,
-            content: before,
+            content: original.content,
             source: "historical_content",
             ...(changedFile?.previous_filename
               ? { renamedFrom: changedFile.previous_filename }
@@ -356,7 +408,7 @@ export async function generate(
         after: {
           path: finalPath,
           sha: bundle.pullRequest.head.sha,
-          content: after,
+          content: final.content,
           source: "historical_content",
         },
         resolved: bundle.thread.isResolved,
@@ -382,7 +434,12 @@ export async function generate(
         ],
         contextLines: options.contextLines ?? 3,
       });
+      validationFixtures = {
+        before: reconstructed.candidate.before,
+        after: reconstructed.candidate.after,
+      };
     }
+
     const provider = options.provider ?? new FakeProvider();
     const analysisRequest = buildAnalysisRequest(
       reconstructed.evidence.review.body,
@@ -397,84 +454,104 @@ export async function generate(
         `Provider analysis was malformed: ${redact(error instanceof Error ? error.message : String(error))}`,
       );
     }
-    const base = {
-      schemaVersion: 1 as const,
-      source: reconstructed.evidence,
-      correction: reconstructed.candidate,
-      enforceability: decision,
-      matches: [],
-      plannedFiles: [],
-      writtenFiles: [],
-      pullRequest: null,
-      nextCommand: null,
-      warnings: [
-        ...reconstructed.evidence.warnings,
-        ...(!fixtureName && options.allowOpenPr
-          ? [
-              "Open pull-request evidence was explicitly allowed and may change.",
-            ]
-          : []),
-        ...(!fixtureName && options.allowUnresolved
-          ? ["Unresolved review-thread evidence was explicitly allowed."]
-          : []),
-        ...(!fixtureName && options.allowUnmapped
-          ? ["Incomplete GitHub evidence mapping was explicitly allowed."]
-          : []),
-        ...(Object.values(analysisRequest.truncation).some(Boolean)
-          ? ["Provider request data was truncated to bounded character limits."]
-          : []),
-      ],
-      errors: [],
+
+    const baseWarnings = [
+      ...reconstructed.evidence.warnings,
+      ...(!fixtureName && options.allowOpenPr
+        ? ["Open pull-request evidence was explicitly allowed and may change."]
+        : []),
+      ...(!fixtureName && options.allowUnresolved
+        ? ["Unresolved review-thread evidence was explicitly allowed."]
+        : []),
+      ...(!fixtureName && options.allowUnmapped
+        ? ["Incomplete GitHub evidence mapping was explicitly allowed."]
+        : []),
+      ...(Object.values(analysisRequest.truncation).some(Boolean)
+        ? ["Provider request data was truncated to bounded character limits."]
+        : []),
+    ];
+    const invocation = `review-to-rule generate ${shellQuote(reviewUrl)}${options.fixture ? ` --fixture ${shellQuote(options.fixture)}` : ""}`;
+    const providerInfo = options.providerInfo ?? {
+      name: fixtureName ? "fake" : "injected",
+      model: fixtureName ? "deterministic-fixture" : "configured",
     };
+    const applyOptions = {
+      repositoryDir: repositoryDir ?? process.cwd(),
+      repositorySource,
+      runner,
+      ...(options.write ? { write: true } : {}),
+      ...(options.yes ? { yes: true } : {}),
+      ...(options.outputDir ? { outputDir: options.outputDir } : {}),
+      ...(options.policyTarget ? { policyTarget: options.policyTarget } : {}),
+      ...(options.policyTargetExplicit !== undefined
+        ? { policyTargetExplicit: options.policyTargetExplicit }
+        : {}),
+      ...(options.agentsPath ? { agentsPath: options.agentsPath } : {}),
+      ...(options.agentsPathExplicit !== undefined
+        ? { agentsPathExplicit: options.agentsPathExplicit }
+        : {}),
+      ...(options.claudePath ? { claudePath: options.claudePath } : {}),
+      ...(options.claudePathExplicit !== undefined
+        ? { claudePathExplicit: options.claudePathExplicit }
+        : {}),
+      ...(options.confidenceFloor !== undefined
+        ? { confidenceFloor: options.confidenceFloor }
+        : {}),
+      ...(options.severity ? { severity: options.severity } : {}),
+      ...(options.include ? { include: options.include } : {}),
+      ...(options.exclude ? { exclude: options.exclude } : {}),
+      ...(options.matchLimit !== undefined
+        ? { matchLimit: options.matchLimit }
+        : {}),
+      ...(options.confirmation ? { confirmation: options.confirmation } : {}),
+      providerInfo,
+      invocation,
+      ...(options.allowOpenPr ? { allowOpenReview: true } : {}),
+      ...(options.allowUnresolved ? { allowUnresolved: true } : {}),
+      ...(options.onInterrupt
+        ? { onInterrupt: options.onInterrupt }
+        : repositoryCleanup
+          ? { onInterrupt: repositoryCleanup }
+          : {}),
+    };
+
+    const confidenceFloor = options.confidenceFloor ?? 0.8;
+    if (decision.enforceable && decision.confidence < confidenceFloor)
+      return confidenceRefusal({
+        source: reconstructed.evidence,
+        correction: reconstructed.candidate,
+        enforceability: decision,
+        warnings: baseWarnings,
+        provider: providerInfo,
+        repository: {
+          path: repositoryDir ?? process.cwd(),
+          source: repositorySource,
+        },
+        invocation,
+        floor: confidenceFloor,
+      });
+
     if (!decision.enforceable) {
-      const refusal = new RefusalError(
-        `${decision.category}: ${decision.rationale} ${decision.limitations.join(" ")}`,
-      );
-      return {
-        exitCode: refusal.code,
-        result: generationResultSchema.parse({
-          ...base,
-          status: "refused",
-          rule: null,
-          validation: null,
-          errors: [
-            {
-              kind: refusal.kind,
-              message: refusal.message,
-              remediation: refusal.remediation,
-            },
-          ],
-        }),
-      };
+      const bundle = buildReviewLearningBundle({
+        reviewUrl,
+        reconstructed,
+        decision,
+        rule: null,
+        fixtures: validationFixtures,
+        warnings: baseWarnings,
+      });
+      return await applyReviewLearningBundle(bundle, {
+        ...applyOptions,
+      });
     }
-    const floor = options.confidenceFloor ?? 0.8;
-    if (decision.confidence < floor) {
-      const refusal = new RefusalError(
-        `Analysis confidence ${decision.confidence.toFixed(2)} is below the required ${floor.toFixed(2)}.`,
-      );
-      return {
-        exitCode: refusal.code,
-        result: generationResultSchema.parse({
-          ...base,
-          status: "refused",
-          rule: null,
-          validation: null,
-          errors: [
-            {
-              kind: refusal.kind,
-              message: refusal.message,
-              remediation: refusal.remediation,
-            },
-          ],
-        }),
-      };
-    }
+
     let lastError: ValidationError | undefined;
+    let lastOutcome: Outcome | undefined;
     let previousProposal: { id: string; yaml: string } | undefined;
     const attemptWarnings: string[] = [];
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const proposed = parseProposal(
+        const proposal = parseProposal(
           await invokeProposalProvider(provider, {
             decision,
             candidate: reconstructed.candidate,
@@ -484,263 +561,32 @@ export async function generate(
             ...(options.severity ? { severity: options.severity } : {}),
             ...(options.include?.length ? { include: options.include } : {}),
             ...(options.exclude?.length ? { exclude: options.exclude } : {}),
-            ...(previousProposal
-              ? {
-                  previousProposal: {
-                    id: previousProposal.id,
-                    yaml: previousProposal.yaml.slice(0, 4_000),
-                  },
-                }
-              : {}),
+            ...(previousProposal ? { previousProposal } : {}),
           }),
         );
-        const proposal = applyRuleConfiguration(proposed, {
-          ...(options.severity ? { severity: options.severity } : {}),
-          ...(options.include?.length ? { include: options.include } : {}),
-          ...(options.exclude?.length ? { exclude: options.exclude } : {}),
-        });
-        previousProposal = { id: proposal.id, yaml: proposal.yaml };
-        const validation = await validateWithSemgrep(
-          {
-            proposal,
-            before,
-            after,
-            ...(allowed !== undefined ? { allowed } : {}),
-            ...(repositoryDir ? { repositoryDir } : {}),
-            matchLimit: options.matchLimit ?? 200,
-            fixturePath: reconstructed.candidate.path,
-          },
-          runner,
-          attempt,
-        );
-        const outputDir = options.outputDir ?? ".review-to-rule";
-        assertSafeExactPath(outputDir, "output directory");
-        const policyTarget = options.policyTarget ?? "neither";
-        const approvalMode = options.yes ? "yes" : "interactive";
-        let policyUpdates: PolicyUpdate[] = [];
-        const sourceIdentity = canonicalReviewIdentity(parsedUrl);
-        const planRoot = repositoryDir ?? process.cwd();
-        if (options.write)
-          await recoverPendingTransactions({
-            repositoryDir: planRoot,
-            outputDir,
-          });
-        const discovery = await discoverPolicy(planRoot, runner, outputDir);
-        const policyPaths = resolvePolicyPaths(discovery, policyTarget, {
-          ...(options.agentsPath ? { agentsPath: options.agentsPath } : {}),
-          ...(options.claudePath ? { claudePath: options.claudePath } : {}),
-        });
-        if (
-          options.write &&
-          options.yes &&
-          policyTarget !== "neither" &&
-          !options.policyTargetExplicit
-        )
-          throw new UnsafeRepositoryError(
-            "Non-interactive policy mutation requires --policy-target in the current CLI invocation.",
-          );
-        for (const policyPath of policyPaths) {
-          const isAgents = policyPath.toLowerCase().endsWith("agents.md");
-          const candidates = isAgents
-            ? discovery.agentsFiles
-            : discovery.claudeFiles;
-          const pathExplicit = isAgents
-            ? options.agentsPathExplicit
-            : options.claudePathExplicit;
-          if (
-            options.write &&
-            options.yes &&
-            candidates.length > 1 &&
-            !pathExplicit
-          )
-            throw new UnsafeRepositoryError(
-              `Non-interactive nested policy mutation requires an exact current-CLI path: ${policyPath}`,
-            );
-        }
-        let plan = await planArtifacts({
-          repositoryDir: planRoot,
-          outputDir,
-          sourceUrl: reviewUrl,
-          sourceIdentity,
-          proposal,
-          evidence: reconstructed.evidence,
-          before,
-          after,
-          ...(allowed !== undefined ? { allowed } : {}),
-          approvalMode,
-          policyTarget,
-          policyExplicit: options.policyTargetExplicit ?? false,
-          policyPaths,
-          provisional: true,
-        });
-        if (policyTarget !== "neither") {
-          if (!repositoryDir)
-            throw new UnsafeRepositoryError(
-              "Policy updates require an explicit or resolved repository.",
-            );
-          policyUpdates = await Promise.all(
-            policyPaths.map((path) => {
-              const rulePath = plan.files.find(
-                (file) =>
-                  file.kind === "artifact" && file.path.endsWith(".yml"),
-              )?.path;
-              if (!rulePath)
-                throw new UnsafeRepositoryError(
-                  "The final artifact plan did not contain one rule path.",
-                );
-              return planManagedPolicyUpdate(repositoryDir, path, {
-                manifestPath: plan.manifestPath,
-                rulePath,
-              });
-            }),
-          );
-          plan = await planArtifacts({
-            repositoryDir,
-            outputDir,
-            sourceUrl: reviewUrl,
-            sourceIdentity,
-            proposal,
-            evidence: reconstructed.evidence,
-            before,
-            after,
-            ...(allowed !== undefined ? { allowed } : {}),
-            approvalMode,
-            policyTarget,
-            policyExplicit: options.policyTargetExplicit ?? false,
-            policyPaths,
-            policyUpdates,
-          });
-        }
-        const broadness =
-          proposal.include.length === 1 && !proposal.include[0]?.includes("*")
-            ? "exact-file"
-            : "review-required";
-        const broadnessWarnings =
-          broadness === "exact-file"
-            ? []
-            : [
-                "The generated include scope is globbed or absent; review affected paths before writing.",
-              ];
-        const writeCommand = `review-to-rule generate ${shellQuote(reviewUrl)}${options.fixture ? ` --fixture ${shellQuote(options.fixture)}` : ""}${options.repositoryDir ? ` --repo-dir ${shellQuote(options.repositoryDir)}` : ""} --write --policy-target ${shellQuote(policyTarget)}${options.agentsPath ? ` --agents-path ${shellQuote(options.agentsPath)}` : ""}${options.claudePath ? ` --claude-path ${shellQuote(options.claudePath)}` : ""}`;
-        const unchangedPolicies = policyUpdates.filter(
-          (update) => update.action === "unchanged",
-        );
-        const artifacts = [
-          ...plan.files.map((file) => ({
-            path: file.path,
-            kind: file.kind,
-            action: file.action,
-            bytes: Buffer.byteLength(file.content),
-            sha256: hash(file.content),
-            summary:
-              file.kind === "policy"
-                ? "managed policy pointer"
-                : file.path.endsWith(".yml")
-                  ? "validated Semgrep rule"
-                  : file.path.includes("/fixtures/")
-                    ? "bounded regression fixture"
-                    : file.path.includes("/evidence/")
-                      ? "bounded review evidence"
-                      : "ownership and replay manifest",
-          })),
-          ...unchangedPolicies.map((policy) => ({
-            path: policy.path,
-            kind: "policy" as const,
-            action: "unchanged" as const,
-            bytes: Buffer.byteLength(policy.content),
-            sha256: policy.nextHash,
-            summary: "managed policy pointer already exact",
-          })),
-        ];
-        const preview = {
-          collision: plan.collision,
-          policyTarget,
-          policyExplicit: options.policyTargetExplicit ?? false,
-          policyFiles: policyUpdates.map((update) => ({
-            path: update.path,
-            action: update.action,
-            previousHash: update.previousHash,
-            nextHash: update.nextHash,
-            diff: update.diff,
-          })),
-          artifacts,
-          discovery: {
-            artifactState: discovery.artifactState ?? {
-              path: outputDir,
-              exists: false,
-              symlink: false,
-              trackedFiles: [],
-            },
-            semgrepCandidates: discovery.semgrepCandidates ?? [],
-            policyFiles: discovery.policyFiles ?? [],
-            ambiguities: discovery.ambiguities ?? [],
-          },
-          broadness,
-          broadnessWarnings,
-          suggestedWriteCommand: writeCommand,
+        previousProposal = {
+          id: proposal.id,
+          yaml: proposal.yaml.slice(0, 4_000),
         };
-        let writtenFiles: string[] = [];
-        let approval: {
-          mode: "interactive" | "yes";
-          confirmed: boolean;
-        } | null = null;
-        if (options.write) {
-          if (!repositoryDir)
-            throw new UnsafeRepositoryError(
-              "Artifact writes require a repository directory.",
-            );
-          if (!options.yes) {
-            if (!options.confirmation?.isTTY)
-              throw new UnsafeRepositoryError(
-                "Interactive confirmation requires a TTY; use --yes after reviewing a dry run.",
-              );
-            const confirmed = await options.confirmation.confirm(
-              approvalPreview(preview),
-            );
-            if (!confirmed)
-              throw new UnsafeRepositoryError(
-                "Write declined; no files were changed.",
-              );
-            approval = { mode: "interactive", confirmed: true };
-          } else approval = { mode: "yes", confirmed: true };
-          for (const [signal, handler] of signalHandlers)
-            process.off(signal, handler);
-          signalHandlers.length = 0;
-          writtenFiles = await commitArtifactPlan({
-            repositoryDir,
-            plan,
-            runner,
-            expectedPolicyHashes: new Map(
-              policyUpdates.map((update) => [update.path, update.previousHash]),
-            ),
-            ...(options.onInterrupt
-              ? { onInterrupt: options.onInterrupt }
-              : repositoryCleanup
-                ? { onInterrupt: repositoryCleanup }
-                : {}),
-          });
-        }
-        const result = generationResultSchema.parse({
-          ...base,
-          status: "success",
+        const bundle = buildReviewLearningBundle({
+          reviewUrl,
+          reconstructed,
+          decision,
           rule: proposal,
-          validation,
-          matches: validation.matches,
-          plannedFiles: plan.ownedFiles,
-          writtenFiles,
-          warnings: [...base.warnings, ...attemptWarnings],
-          nextCommand: `review-to-rule generate ${shellQuote(reviewUrl)}${fixtureName ? ` --fixture ${shellQuote(options.fixture ?? fixtureName)}` : ""}`,
-          provider: options.providerInfo ?? {
-            name: fixtureName ? "fake" : "injected",
-            model: fixtureName ? "deterministic-fixture" : "configured",
-          },
-          repository: repositoryDir
-            ? { path: repositoryDir, source: repositorySource }
-            : null,
-          preview,
-          approval,
+          fixtures: validationFixtures,
+          warnings: baseWarnings,
         });
-        return { result, exitCode: ExitCode.success };
+        const outcome = await applyReviewLearningBundle(bundle, {
+          ...applyOptions,
+          warnings: attemptWarnings,
+          attempt,
+        });
+        if (outcome.exitCode !== ExitCode.validation) return outcome;
+        lastOutcome = outcome;
+        lastError = new ValidationError(
+          outcome.result.errors[0]?.message ?? "Rule validation failed.",
+          outcome.result.errors[0]?.remediation,
+        );
       } catch (error) {
         if (
           error instanceof ConfigurationError ||
@@ -754,51 +600,46 @@ export async function generate(
             : new ValidationError(
                 redact(error instanceof Error ? error.message : String(error)),
               );
-        attemptWarnings.push(
-          `Attempt ${attempt}/3 failed: ${redact(lastError.message)}`,
-        );
       }
+      attemptWarnings.push(
+        `Attempt ${attempt}/3 failed: ${redact(lastError.message)}`,
+      );
     }
-    const failure =
-      lastError ??
-      new ValidationError("Rule validation failed after three attempts.");
-    return {
-      exitCode: failure.code,
-      result: generationResultSchema.parse({
-        ...base,
-        status: "validation_failed",
-        rule: null,
-        validation: null,
-        warnings: [...base.warnings, ...attemptWarnings],
-        errors: [
-          {
-            kind: failure.kind,
-            message: failure.message,
-            remediation: failure.remediation,
-          },
-        ],
-      }),
-    };
+    if (lastOutcome)
+      return {
+        ...lastOutcome,
+        result: generationResultSchema.parse({
+          ...lastOutcome.result,
+          warnings: [
+            ...new Set([...lastOutcome.result.warnings, ...attemptWarnings]),
+          ],
+        }),
+      };
+    return proposalFailure({
+      source: reconstructed.evidence,
+      correction: reconstructed.candidate,
+      enforceability: decision,
+      warnings: [...baseWarnings, ...attemptWarnings],
+      error:
+        lastError ??
+        new ValidationError("Rule validation failed after three attempts."),
+    });
   } catch (error) {
     if (error instanceof DomainError) return errorOutcome(error);
-    const internal = new DomainError(
-      redact(error instanceof Error ? error.message : String(error)),
-      ExitCode.internal,
-      "internal",
-      "Run again with --debug and report the sanitized diagnostic.",
+    return errorOutcome(
+      new DomainError(
+        redact(error instanceof Error ? error.message : String(error)),
+        ExitCode.internal,
+        "internal",
+        "Run again with --debug and report the sanitized diagnostic.",
+      ),
     );
-    return {
-      exitCode: internal.code,
-      result: emptyResult("internal_error", internal),
-    };
   } finally {
     for (const [signal, handler] of signalHandlers)
       process.off(signal, handler);
     try {
       await repositoryCleanup?.();
     } catch (error) {
-      // A cleanup failure must override a would-be success so callers never
-      // receive a false clean-state report.
       // eslint-disable-next-line no-unsafe-finally
       return errorOutcome(
         new UnsafeRepositoryError(
@@ -809,3 +650,6 @@ export async function generate(
     }
   }
 }
+
+export { errorOutcome } from "./core.js";
+export type { ConfirmationPort, Outcome } from "./core.js";

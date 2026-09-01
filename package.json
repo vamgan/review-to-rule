@@ -1,6 +1,6 @@
 {
   "name": "review-to-rule",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Turn resolved review feedback into independently validated Semgrep rules.",
   "type": "module",
   "license": "MIT",
@@ -20,7 +20,10 @@
     "semgrep",
     "code-review",
     "static-analysis",
-    "cli"
+    "cli",
+    "coding-agents",
+    "gitlab",
+    "github"
   ],
   "engines": {
     "node": ">=24"
@@ -29,13 +32,14 @@
     "review-to-rule": "dist/cli.js"
   },
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./core": "./dist/core-entry.js"
   },
   "files": [
     "dist",
     "examples",
     "docs",
-    ".agents/skills/review-to-rule-write/SKILL.md",
+    ".agents/skills/review-to-rule-write",
     "README.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
@@ -43,15 +47,15 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/set-bin-mode.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/set-bin-mode.mjs",
     "prepare": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
+    "test": "vitest run tests/unit tests/integration tests/e2e",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "test:e2e": "vitest run tests/e2e tests/evaluation",
+    "test:e2e": "vitest run tests/e2e",
     "test:smoke": "npm run build && node scripts/package-smoke.mjs",
     "test:ci-bootstrap": "npm run build --silent && node scripts/verify-ci-bootstrap.mjs",
     "demo": "npm run build --silent && node dist/cli.js generate https://github.com/acme/clock/pull/42#discussion_r1001 --fixture injected-clock",

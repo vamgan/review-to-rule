@@ -1,8 +1,11 @@
 import { z } from "zod";
 import {
   resolveConfig,
+  resolveCoreConfig,
   providerCredential,
   type ConfigOverrides,
+  type CoreConfigOverrides,
+  type EffectiveConfig,
 } from "./config.js";
 import type { CommandRunner } from "./utils/command.js";
 import { inspectContainedPathNoFollow } from "./security/path.js";
@@ -25,6 +28,7 @@ export async function runDoctor(input: {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   config?: ConfigOverrides;
+  mode?: "agent";
 }) {
   const env = input.env ?? process.env;
   const checks: Array<z.infer<typeof checkSchema>> = [];
@@ -40,6 +44,16 @@ export async function runDoctor(input: {
     ["gh", "gh", ["--version"]],
     ["semgrep", "semgrep", ["--version"]],
   ] as const) {
+    if (input.mode === "agent" && name === "gh") {
+      checks.push({
+        name,
+        status: "skip",
+        diagnostic:
+          "Host-agent mode retrieves review evidence through the agent's available tools.",
+        remediation: null,
+      });
+      continue;
+    }
     try {
       const result = await input.runner.run(binary, args, { cwd: input.cwd });
       checks.push({
@@ -58,37 +72,74 @@ export async function runDoctor(input: {
       });
     }
   }
-  try {
-    const auth = await input.runner.run("gh", ["auth", "status"], {
-      cwd: input.cwd,
-    });
+  if (input.mode === "agent")
     checks.push({
       name: "github-auth",
-      status: auth.exitCode === 0 ? "pass" : "fail",
-      diagnostic:
-        auth.exitCode === 0
-          ? "GitHub CLI authentication is available."
-          : "GitHub CLI authentication is unavailable.",
-      remediation:
-        auth.exitCode === 0 ? null : "Run gh auth login or provide GH_TOKEN.",
+      status: "skip",
+      diagnostic: "Host-agent mode does not require GitHub CLI authentication.",
+      remediation: null,
     });
-  } catch (error) {
-    checks.push({
-      name: "github-auth",
-      status: "fail",
-      diagnostic: error instanceof Error ? error.message : String(error),
-      remediation: "Run gh auth login or provide GH_TOKEN.",
-    });
-  }
+  else
+    try {
+      const auth = await input.runner.run("gh", ["auth", "status"], {
+        cwd: input.cwd,
+      });
+      checks.push({
+        name: "github-auth",
+        status: auth.exitCode === 0 ? "pass" : "fail",
+        diagnostic:
+          auth.exitCode === 0
+            ? "GitHub CLI authentication is available."
+            : "GitHub CLI authentication is unavailable.",
+        remediation:
+          auth.exitCode === 0 ? null : "Run gh auth login or provide GH_TOKEN.",
+      });
+    } catch (error) {
+      checks.push({
+        name: "github-auth",
+        status: "fail",
+        diagnostic: error instanceof Error ? error.message : String(error),
+        remediation: "Run gh auth login or provide GH_TOKEN.",
+      });
+    }
   try {
-    const config = await resolveConfig(input.config ?? {}, {
-      cwd: input.cwd,
-      env,
-    });
+    const rawConfig = input.config ?? {};
+    const agentConfig: CoreConfigOverrides = {
+      ...(rawConfig.config ? { config: rawConfig.config } : {}),
+      ...(rawConfig.outputDir ? { outputDir: rawConfig.outputDir } : {}),
+      ...(rawConfig.confidenceFloor !== undefined
+        ? { confidenceFloor: rawConfig.confidenceFloor }
+        : {}),
+      ...(rawConfig.severity ? { severity: rawConfig.severity } : {}),
+      ...(rawConfig.matchLimit !== undefined
+        ? { matchLimit: rawConfig.matchLimit }
+        : {}),
+      ...(rawConfig.include ? { include: rawConfig.include } : {}),
+      ...(rawConfig.exclude ? { exclude: rawConfig.exclude } : {}),
+      ...(rawConfig.policyTarget
+        ? { policyTarget: rawConfig.policyTarget }
+        : {}),
+      ...(rawConfig.agentsPath ? { agentsPath: rawConfig.agentsPath } : {}),
+      ...(rawConfig.claudePath ? { claudePath: rawConfig.claudePath } : {}),
+    };
+    const config =
+      input.mode === "agent"
+        ? await resolveCoreConfig(agentConfig, {
+            cwd: input.cwd,
+            env,
+          })
+        : await resolveConfig(rawConfig, {
+            cwd: input.cwd,
+            env,
+          });
+    const standaloneConfig =
+      "provider" in config ? (config as EffectiveConfig) : undefined;
     checks.push({
       name: "config",
       status: "pass",
-      diagnostic: `provider=${config.provider}; model=${config.model}; output=${config.outputDir}`,
+      diagnostic: standaloneConfig
+        ? `provider=${standaloneConfig.provider}; model=${standaloneConfig.model}; output=${config.outputDir}`
+        : `mode=host-agent; output=${config.outputDir}`,
       remediation: null,
     });
     try {
@@ -118,29 +169,45 @@ export async function runDoctor(input: {
         remediation: "Choose a contained non-symlink output directory.",
       });
     }
-    const credential = providerCredential(config.provider, env);
-    checks.push({
-      name: "provider-credential",
-      status:
-        config.provider === "fake" ? "skip" : credential ? "pass" : "fail",
-      diagnostic:
-        config.provider === "fake"
-          ? "Offline fixture provider does not use credentials."
-          : credential
-            ? `${config.provider} credential is present (value hidden).`
-            : `${config.provider} credential is missing.`,
-      remediation:
-        config.provider === "fake" || credential
-          ? null
-          : `Set the credential required by ${config.provider}.`,
-    });
+    if (!standaloneConfig)
+      checks.push({
+        name: "provider-credential",
+        status: "skip",
+        diagnostic:
+          "Host-agent mode uses the active agent; no separate model credential is required.",
+        remediation: null,
+      });
+    else {
+      const credential = providerCredential(standaloneConfig.provider, env);
+      checks.push({
+        name: "provider-credential",
+        status:
+          standaloneConfig.provider === "fake"
+            ? "skip"
+            : credential
+              ? "pass"
+              : "fail",
+        diagnostic:
+          standaloneConfig.provider === "fake"
+            ? "Offline fixture provider does not use credentials."
+            : credential
+              ? `${standaloneConfig.provider} credential is present (value hidden).`
+              : `${standaloneConfig.provider} credential is missing.`,
+        remediation:
+          standaloneConfig.provider === "fake" || credential
+            ? null
+            : `Set the credential required by ${standaloneConfig.provider}.`,
+      });
+    }
   } catch (error) {
     checks.push({
       name: "config",
       status: "fail",
       diagnostic: error instanceof Error ? error.message : String(error),
       remediation:
-        "Select a provider and validate .review-to-rule.yml before generation.",
+        input.mode === "agent"
+          ? "Validate the repository's .review-to-rule.yml core settings."
+          : "Select a provider and validate .review-to-rule.yml before standalone generation.",
     });
     checks.push({
       name: "provider-credential",
@@ -168,7 +235,12 @@ export async function runDoctor(input: {
       .catch(() => ({ exitCode: 1, stdout: "", stderr: "" }));
     let identity = "missing origin";
     let valid = false;
-    if (origin.exitCode === 0)
+    if (input.mode === "agent") {
+      valid = origin.exitCode === 0 && Boolean(origin.stdout.trim());
+      identity = valid
+        ? "origin configured; provider-neutral"
+        : "missing origin";
+    } else if (origin.exitCode === 0)
       try {
         identity = normalizeGitRemote(origin.stdout);
         valid = true;
@@ -181,7 +253,9 @@ export async function runDoctor(input: {
       diagnostic: `${repo.stdout.trim()} (${identity})`,
       remediation: valid
         ? null
-        : "Configure a supported GitHub origin or select the matching repository explicitly.",
+        : input.mode === "agent"
+          ? "Configure a repository origin or select the repository explicitly."
+          : "Configure a supported GitHub origin or select the matching repository explicitly.",
     });
   }
   return doctorResultSchema.parse({

@@ -2,9 +2,10 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    // Real Semgrep integration cases are process-heavy. Bounding workers keeps
-    // Vitest's RPC channel responsive and makes the release gate deterministic.
-    maxWorkers: 2,
+    // Packed CLI tests share one built dist/. Run files serially so a clean
+    // rebuild cannot remove another file's executable or package exports.
+    fileParallelism: false,
+    maxWorkers: 1,
     testTimeout: 30_000,
   },
 });

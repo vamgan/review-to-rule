@@ -51,6 +51,7 @@ const sourcePriority: Record<SourceRevision["source"], number> = {
   diff_preimage: 2,
   historical_content: 3,
   fixture: 4,
+  agent_context: 5,
 };
 
 interface DiffOperation {

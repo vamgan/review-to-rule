@@ -5,8 +5,10 @@ import type { CommandRunner } from "../../src/utils/command.js";
 
 class AlwaysFailRunner implements CommandRunner {
   calls = 0;
-  run(): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-    this.calls++;
+  run(
+    binary: "git" | "gh" | "semgrep",
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    if (binary === "semgrep") this.calls++;
     return Promise.resolve({
       exitCode: 2,
       stdout: "",
@@ -29,7 +31,12 @@ describe("bounded repair", () => {
     const runner = new AlwaysFailRunner();
     const outcome = await generate(
       "https://github.com/acme/clock/pull/42#discussion_r1001",
-      { fixture: "typescript-injected-clock", provider, runner },
+      {
+        fixture: "typescript-injected-clock",
+        provider,
+        runner,
+        repositoryDir: process.cwd(),
+      },
     );
     expect(outcome.exitCode).toBe(3);
     expect(provider.calls).toEqual([
@@ -54,6 +61,9 @@ describe("bounded repair", () => {
         warning.startsWith("Attempt "),
       ),
     ).toHaveLength(3);
+    expect(outcome.result.source?.review.commentId).toBe(1001);
+    expect(outcome.result.rule?.id).toMatch(/^review-to-rule\./);
+    expect(outcome.result.repository?.source).toBe("fixture");
     expect(outcome.result.writtenFiles).toEqual([]);
   });
 });
