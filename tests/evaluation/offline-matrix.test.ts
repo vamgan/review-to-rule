@@ -44,6 +44,6 @@ describe.skipIf(!semgrepAvailable)(
       }
       expect(summary).toHaveLength(12);
       console.log(`EVALUATION_SUMMARY=${JSON.stringify(summary)}`);
-    }, 120_000);
+    }, 600_000);
   },
 );

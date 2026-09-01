@@ -102,9 +102,21 @@ describe("built public CLI", () => {
       ? "makes root and explicit generate forms deeply equivalent"
       : `makes root and explicit generate forms deeply equivalent (${semgrepSkipReason})`,
     async () => {
-      const [explicit, alias] = await Promise.all([
-        run(["generate", review, "--fixture", "injected-clock", "--json"]),
-        run([review, "--fixture", "injected-clock", "--json"]),
+      // Real Semgrep processes share user-level cache and settings files. Keep
+      // this equivalence check sequential so the test follows the suite's
+      // single-worker contract on clean CI runners as well as locally.
+      const explicit = await run([
+        "generate",
+        review,
+        "--fixture",
+        "injected-clock",
+        "--json",
+      ]);
+      const alias = await run([
+        review,
+        "--fixture",
+        "injected-clock",
+        "--json",
       ]);
       expect(explicit.status).toBe(0);
       expect(alias.status).toBe(0);
