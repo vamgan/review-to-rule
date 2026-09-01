@@ -58,10 +58,12 @@ configuration or read model credentials.
 - Use host tools for GitHub, GitLab, Bitbucket, Gerrit, Azure Repos, and private
   review systems.
 - Use a temporary user-only bundle and run `apply` as the authority.
+- Ship the deterministic `apply`, validation, and replay helper inside the
+  installed skill and Claude Code plugin.
 - Offer `AGENTS.md`, `CLAUDE.md`, both, or neither after repository discovery.
 - Keep change-request publication in host tools behind a separate preview and
   approval.
-- Use a PATH binary or `npx` fallback; never require a global CLI install.
+- Never require, discover, or download a separate CLI in the agent workflow.
 
 ### 4. Optional standalone adapters
 
@@ -73,7 +75,8 @@ configuration or read model credentials.
 ### 5. Release gate
 
 - Typecheck, lint, formatting, unit, integration, end-to-end, build,
-  packed-package smoke, CI-bootstrap verification, and dry-run pack.
+  skill-only smoke, Claude plugin-structure validation, packed-package smoke,
+  CI-bootstrap verification, and dry-run pack.
 - Publish only from the protected release workflow using npm trusted publishing.
 
 ## Verification strategy
@@ -82,8 +85,9 @@ Unit tests cover bundle consistency, URL normalization, credential rejection,
 strict rule shape, path safety, config separation, redaction, and typed failures.
 Integration tests cover provider-neutral enterprise provenance, policy discovery,
 artifact collisions, replay, rollback, and command allowlists. End-to-end tests
-prove agent mode works without GitHub or model credentials and that dry runs do
-not mutate repositories.
+copy only the installed skill directory and prove preview, write, and validation
+work without the npm package, a global CLI, GitHub credentials, or model
+credentials, and that dry runs do not mutate repositories.
 
 ## Intentional limits
 

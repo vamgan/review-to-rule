@@ -5,23 +5,26 @@ description: Turn accepted code-review feedback from any review system the host 
 
 # Review to rule write
 
-Use the host agent for review retrieval and reasoning. Use `review-to-rule` as
-the deterministic schema, provenance, repository-discovery, preview, integrity,
-and persistence boundary. GitHub authentication and separate model-provider
-configuration are not part of the agent workflow.
+Use the host agent for review retrieval and reasoning. This skill includes its
+own deterministic helper for schema validation, repository discovery, preview,
+integrity, and persistence. GitHub authentication, a separately installed
+`review-to-rule` CLI, and model-provider configuration are not part of the
+agent workflow.
 
-## Runtime
+## Self-contained runtime
 
-Use `review-to-rule` when it is already on `PATH`. Otherwise use
-`npx --yes review-to-rule@latest`; never require or perform a global install.
-Before the fallback downloads and executes the published package, tell the user
-and honor any approval required by the host. Keep the chosen command prefix for
-the entire run.
+Do not look for, install, or invoke a global `review-to-rule` binary. Do not run
+`npx review-to-rule`. Resolve the `scripts/review-to-rule.mjs` file bundled next
+to this `SKILL.md` and invoke it with Node. In a Claude Code plugin install the
+same path is `${CLAUDE_PLUGIN_ROOT}/scripts/review-to-rule.mjs`; in another
+agent, resolve it from the loaded skill directory. Keep that exact helper path
+for the entire run.
 
-Run `<rtr> doctor --mode agent --repo-dir '<repository>'` before creating a
-bundle. Agent mode requires only Node and Git. It deliberately skips review-host
-CLI authentication and OpenAI/Anthropic credentials because the active host
-agent already has its own tools and reasoning context.
+Run `node '<helper>' doctor --mode agent --repo-dir '<repository>'` before
+creating a bundle. The helper is part of the installed skill, not a separate
+CLI dependency. Agent mode requires only Node and Git. It deliberately skips
+review-host CLI authentication and OpenAI/Anthropic credentials because the
+active host agent already has its own tools and reasoning context.
 
 ## Workflow
 
@@ -43,15 +46,16 @@ agent already has its own tools and reasoning context.
    [references/review-bundle.md](references/review-bundle.md) exactly. Never put
    credentials, authorization headers, cookies, environment values, or an
    entire source file in the bundle.
-5. Run `<rtr> apply '<bundle>' --repo-dir '<repository>'`. Surface the complete
-   result: reviewer intent, applicability, rule, integrity checks, scope,
-   collisions, existing rule memory, discovered instruction files,
+5. Run `node '<helper>' apply '<bundle>' --repo-dir '<repository>'`. Surface the
+   complete result: reviewer intent, applicability, rule, integrity checks,
+   scope, collisions, existing rule memory, discovered instruction files,
    ambiguities, and planned paths. This first pass must not include `--write`.
 6. Ask the user whether the managed pointer should be added to `AGENTS.md`,
    `CLAUDE.md`, both, or neither. If multiple nested candidates exist, require
    the exact `--agents-path` and/or `--claude-path` selection.
-7. Rerun the same dry run with the explicit `--policy-target` and selected exact
-   paths. Surface its complete mutation preview and ask for explicit approval.
+7. Rerun the same bundled-helper dry run with the explicit `--policy-target`
+   and selected exact paths. Surface its complete mutation preview and ask for
+   explicit approval.
 8. Only after approval, rerun those exact arguments with `--write --yes`. Report
    the final written-file list and manifest path. `.review-to-rule/INDEX.md` and
    `.review-to-rule/rules/*.md` are the canonical agent context; instruction

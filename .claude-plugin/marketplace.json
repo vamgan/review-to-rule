@@ -1,0 +1,18 @@
+{
+  "name": "review-to-rule",
+  "owner": {
+    "name": "Vamil Gandhi",
+    "url": "https://github.com/vamgan"
+  },
+  "description": "Agent-native review memory for Claude Code.",
+  "plugins": [
+    {
+      "name": "review-to-rule",
+      "source": "./.agents/skills/review-to-rule-write",
+      "version": "0.3.0",
+      "description": "Turn accepted code-review feedback into durable repository guidance without a separate CLI install.",
+      "category": "development",
+      "tags": ["code-review", "agent-skills", "repository-memory"]
+    }
+  ]
+}

@@ -27,8 +27,11 @@ try {
   });
   for (const required of [
     "package/dist/cli-v2.js",
+    "package/.claude-plugin/marketplace.json",
     "package/.agents/skills/review-to-rule-write/SKILL.md",
+    "package/.agents/skills/review-to-rule-write/.claude-plugin/plugin.json",
     "package/.agents/skills/review-to-rule-write/references/review-bundle.md",
+    "package/.agents/skills/review-to-rule-write/scripts/review-to-rule.mjs",
   ])
     if (!listing.includes(required))
       throw new Error(`packed artifact missing: ${required}`);
@@ -54,6 +57,16 @@ try {
     "dist",
     "cli-v2.js",
   );
+  const skillHelper = join(
+    installDirectory,
+    "node_modules",
+    "review-to-rule",
+    ".agents",
+    "skills",
+    "review-to-rule-write",
+    "scripts",
+    "review-to-rule.mjs",
+  );
   if (!readFileSync(cli, "utf8").startsWith("#!/usr/bin/env node"))
     throw new Error("built CLI has no shebang");
   for (const args of [
@@ -64,6 +77,10 @@ try {
     ["validate-all", "--help"],
   ])
     execFileSync(process.execPath, [cli, ...args], { stdio: "ignore" });
+  for (const args of [["--help"], ["--version"], ["apply", "--help"]])
+    execFileSync(process.execPath, [skillHelper, ...args], {
+      stdio: "ignore",
+    });
   execFileSync(
     process.execPath,
     [
@@ -73,7 +90,7 @@ try {
     ],
     { cwd: installDirectory, stdio: "ignore" },
   );
-  console.log("packed agent-memory CLI smoke test passed");
+  console.log("packed CLI and self-contained skill smoke test passed");
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }

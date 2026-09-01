@@ -9,6 +9,7 @@ export default tseslint.config(
       ".venv/**",
       "scripts/**",
       "examples/**",
+      ".agents/skills/review-to-rule-write/scripts/review-to-rule.mjs",
       "eslint.config.js",
     ],
   },

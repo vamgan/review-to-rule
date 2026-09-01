@@ -37,6 +37,7 @@
   },
   "files": [
     "dist",
+    ".claude-plugin",
     "examples",
     "docs",
     ".agents/skills/review-to-rule-write",
@@ -48,6 +49,7 @@
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/set-bin-mode.mjs",
+    "build:skill-helper": "node scripts/build-skill-helper.mjs",
     "prepare": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
@@ -56,10 +58,11 @@
     "test:unit": "vitest run tests/v2/policy-provider.test.ts tests/v2/security.test.ts",
     "test:integration": "vitest run tests/v2/core.test.ts",
     "test:e2e": "npm run test:smoke",
+    "test:skill": "node scripts/build-skill-helper.mjs --check && node scripts/skill-smoke.mjs",
     "test:smoke": "npm run build && node scripts/package-smoke-v2.mjs",
     "test:ci-bootstrap": "npm run build --silent && node scripts/verify-ci-bootstrap-v2.mjs",
     "validate": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:smoke",
-    "release:check": "npm run format:check && npm run typecheck && npm run lint && npm test && npm run build && npm run test:smoke && npm run test:ci-bootstrap"
+    "release:check": "npm run format:check && npm run typecheck && npm run lint && npm test && npm run build && npm run test:skill && npm run test:smoke && npm run test:ci-bootstrap"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
@@ -71,6 +74,7 @@
   "devDependencies": {
     "@eslint/js": "^9.34.0",
     "@types/node": "^24.3.0",
+    "esbuild": "^0.28.2",
     "eslint": "^9.34.0",
     "prettier": "^3.6.2",
     "typescript": "^5.9.2",
