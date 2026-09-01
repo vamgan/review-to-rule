@@ -1,0 +1,62 @@
+name: release / github
+
+# Creates a GitHub Release. Dispatched by tag.yml after tagging.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.3.2)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Resolve pre-release flag
+        id: meta
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [[ "$TAG" == *"-beta."* || "$TAG" == *"-alpha."* || "$TAG" == *"-rc."* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: actions/github-script@v9
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
+          IS_PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            const isPrerelease = process.env.IS_PRERELEASE === 'true';
+            try {
+              await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              core.notice(`Release ${tag} already exists; skipping.`);
+              return;
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: tag,
+              generate_release_notes: true,
+              prerelease: isPrerelease,
+              draft: false,
+            });
