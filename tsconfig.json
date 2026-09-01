@@ -19,6 +19,7 @@
   },
   "include": [
     "src/cli-v2.ts",
+    "src/skill-helper.ts",
     "src/index.ts",
     "src/core-entry.ts",
     "tests/v2/**/*.ts",

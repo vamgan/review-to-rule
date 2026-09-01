@@ -19,16 +19,25 @@ Gerrit, Azure Repos, or a private system your coding agent can access.
 
 ## Add it to your agent
 
-Install the skill for the agent you already use:
+### Claude Code plugin
+
+Run these commands inside Claude Code:
+
+```text
+/plugin marketplace add vamgan/review-to-rule
+/plugin install review-to-rule@review-to-rule
+/reload-plugins
+```
+
+Then invoke it directly:
+
+```text
+/review-to-rule:review-to-rule-write Turn this accepted review into a rule: <PR, MR, change, or comment URL>
+```
+
+### Codex
 
 ```bash
-# Claude Code
-npx skills add vamgan/review-to-rule \
-  --skill review-to-rule-write \
-  --agent claude-code \
-  --yes
-
-# Codex
 npx skills add vamgan/review-to-rule \
   --skill review-to-rule-write \
   --agent codex \
@@ -39,10 +48,11 @@ Then ask:
 
 > Turn this accepted review into a rule: `<PR, MR, change, or comment URL>`
 
-No global CLI install, `gh auth login`, model API key, or provider configuration
-is needed. The skill uses your agent's existing access, and falls back to
-`npx --yes review-to-rule@latest` for validation and writes. You only need
-Node.js 24+ and Git.
+That is the whole agent installation. No separate `review-to-rule` CLI, npm
+package install, `gh auth login`, model API key, or provider configuration is
+needed. The plugin and portable skill both include the deterministic helper
+used for previews, writes, and validation. Runtime requirements are Node.js 24+
+and Git.
 
 The skill retrieves the accepted review and its before/after revisions, creates
 a temporary provider-neutral bundle, and shows a complete dry run. Nothing is
@@ -101,18 +111,22 @@ The repository owns its future review memory:
 `CLAUDE.md` tell agents to read the index and load only rules matching the files
 they are reviewing. Rule logic is never duplicated there.
 
-Integrity validation is local and deterministic:
+Integrity validation is local and deterministic. During an agent run, the
+installed skill uses its bundled helper to validate the complete write and
+replay its manifest; it does not download or look up another executable.
+
+## Optional npm CLI
+
+You do not need this section for Claude Code or Codex. Install or invoke the npm
+CLI only for terminal automation, CI, or the standalone GitHub adapter:
 
 ```bash
 npx review-to-rule@latest validate-all .review-to-rule --repo-dir .
 npx review-to-rule@latest replay .review-to-rule/manifests/<rule>.json
 ```
 
-## Standalone GitHub adapter
-
-The agent workflow above is the default. If you intentionally run without a
-capable host agent, the optional standalone adapter can retrieve one GitHub
-review and call OpenAI or Anthropic itself:
+If you intentionally run without a capable host agent, the standalone adapter
+can retrieve one GitHub review and call OpenAI or Anthropic itself:
 
 ```bash
 gh auth login

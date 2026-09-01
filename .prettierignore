@@ -2,3 +2,4 @@ dist
 coverage
 package-lock.json
 .harness
+.agents/skills/review-to-rule-write/scripts/review-to-rule.mjs

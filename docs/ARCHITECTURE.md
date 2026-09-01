@@ -37,7 +37,10 @@ The review-memory bundle is the only handoff. It uses generic `source.change`,
 The bundle is bounded, versioned, credential-free, and validated before any
 repository write. See [REVIEW_BUNDLE.md](REVIEW_BUNDLE.md).
 
-The deterministic core owns all acceptance decisions after that handoff. It
+The deterministic core owns all acceptance decisions after that handoff. The
+agent skill carries a bundled, dependency-free-at-runtime build of that core,
+so installing the skill or Claude Code plugin is sufficient; no separate npm
+package or global CLI is required. It
 parses one strict agent-readable rule, requires examples anchored to the
 accepted correction, rejects credentials, verifies path and language scope,
 discovers existing memory and instruction locations, resolves collisions, and
@@ -48,7 +51,8 @@ read-only `gh` calls and a configured OpenAI or Anthropic adapter to reconstruct
 the same bundle, then calls the same core. Provider configuration therefore has
 no effect on `apply`, replay, validation, or agent-mode doctor checks.
 Programmatic integrations can import `review-to-rule/core` without loading the
-standalone model adapters.
+standalone model adapters. The npm CLI remains an optional terminal and CI
+surface over the same core.
 
 ## Persistence
 

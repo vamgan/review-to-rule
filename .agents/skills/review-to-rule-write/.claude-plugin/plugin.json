@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "review-to-rule",
+  "displayName": "Review to Rule",
+  "version": "0.3.0",
+  "description": "Turn accepted code-review feedback into durable repository guidance without a separate CLI install.",
+  "author": {
+    "name": "Vamil Gandhi",
+    "url": "https://github.com/vamgan"
+  },
+  "homepage": "https://github.com/vamgan/review-to-rule",
+  "repository": "https://github.com/vamgan/review-to-rule",
+  "license": "MIT",
+  "keywords": ["code-review", "agent-memory", "repository-rules", "claude-code"]
+}
