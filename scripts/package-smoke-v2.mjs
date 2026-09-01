@@ -90,7 +90,7 @@ try {
     ],
     { cwd: installDirectory, stdio: "ignore" },
   );
-  console.log("packed CLI and self-contained skill smoke test passed");
+  console.log("packed CLI and installed skill smoke test passed");
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }

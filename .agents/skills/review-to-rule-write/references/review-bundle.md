@@ -120,6 +120,6 @@ Rule IDs start with `review-to-rule.`. Scope paths are portable repository-
 relative paths or globs. The correction path and language must be covered by
 the rule scope. Instructions, triggers, guidance, rationale, and examples must
 be concrete enough for a future coding agent to decide when the rule applies.
-Do not claim success from inspection: the bundled helper's `apply` dry run and
-its integrity, scope, provenance, collision, and policy-pointer checks are
+Do not claim success from inspection: the writer's `apply` dry run and its
+integrity, scope, provenance, collision, and policy-pointer checks are
 authoritative.

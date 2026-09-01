@@ -15,7 +15,7 @@ import {
   reviewMemoryBundleToEvidence,
   type ReviewMemoryBundle,
 } from "./review-memory-bundle.js";
-import { ProcessCommandRunner, type CommandRunner } from "./utils/command.js";
+import { GitCommandRunner, type CommandRunner } from "./utils/command.js";
 import {
   commitTransaction,
   recoverPendingTransactions,
@@ -26,7 +26,7 @@ import {
   planManagedMemoryUpdate,
   resolveMemoryPolicyPaths,
 } from "./memory-policy.js";
-import type { PolicyTarget } from "./memory-config.js";
+import type { PolicyTarget } from "./memory-core-config.js";
 import { validateAgentReviewRule } from "./rules/validate.js";
 import { canonicalReviewSourceIdentity } from "./source.js";
 import { normalizeGitRemote } from "./repository.js";
@@ -264,7 +264,7 @@ export async function applyReviewMemoryBundle(
         "A reusable review bundle did not contain exactly one review rule.",
       );
 
-    const runner = options.runner ?? new ProcessCommandRunner();
+    const runner = options.runner ?? new GitCommandRunner();
     context.warnings.push(
       ...(await verifyRepositoryIdentity({
         repositoryDir: options.repositoryDir,

@@ -35,24 +35,21 @@ See the complete checked-in
 ## Lifecycle
 
 ```bash
-# <helper> is scripts/review-to-rule.mjs inside the installed skill.
-# 1. Inspect local prerequisites; no GitHub or model credentials are checked.
-node '<helper>' doctor --mode agent --repo-dir .
+# <writer> is scripts/review-to-rule.mjs inside the installed skill.
 
-# 2. Validate evidence, scope, and repository state. Writes nothing.
-node '<helper>' apply /secure/tmp/review-bundle.json --repo-dir .
+# 1. Validate evidence, scope, and repository state. Writes nothing.
+node '<writer>' apply /secure/tmp/review-bundle.json --repo-dir .
 
-# 3. After reviewing the exact policy target and plan.
-node '<helper>' apply /secure/tmp/review-bundle.json \
+# 2. After reviewing the exact policy target and plan.
+node '<writer>' apply /secure/tmp/review-bundle.json \
   --repo-dir . \
   --policy-target agents \
   --write \
   --yes
-```
 
-Claude Code resolves `<helper>` from `${CLAUDE_PLUGIN_ROOT}`. Other agents
-resolve it relative to the loaded `SKILL.md`. These commands never depend on a
-separately installed `review-to-rule` executable.
+# 3. Verify the complete repository memory.
+node '<writer>' validate-all .review-to-rule --repo-dir .
+```
 
 The temporary bundle is transport, not repository state. Delete it after the
 run. The validated Markdown rule, bounded evidence, shared index, and replay
