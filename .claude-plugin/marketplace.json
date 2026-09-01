@@ -9,7 +9,7 @@
     {
       "name": "review-to-rule",
       "source": "./.agents/skills/review-to-rule-write",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "description": "Turn accepted code-review feedback into durable, scoped repository guidance for future coding agents.",
       "category": "development",
       "tags": ["code-review", "agent-skills", "repository-memory"]
