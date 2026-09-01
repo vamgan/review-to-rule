@@ -52,6 +52,37 @@ try {
   });
   const helper = join(installedSkill, "scripts/review-to-rule.mjs");
   if (!existsSync(helper)) throw new Error("installed skill has no helper");
+  const shippedSurface = [
+    readFileSync(join(installedSkill, "SKILL.md"), "utf8"),
+    readFileSync(join(installedSkill, "references/review-bundle.md"), "utf8"),
+    readFileSync(join(installedSkill, ".claude-plugin/plugin.json"), "utf8"),
+    readFileSync(helper, "utf8"),
+  ].join("\n");
+  const normalizedSurface = shippedSurface.toLowerCase();
+  for (const unrelatedDetail of [
+    "self-contained",
+    "npx review-to-rule",
+    "gh auth login",
+    "openai_api_key",
+    "anthropic_api_key",
+    "github-cli",
+    "model-credential",
+    "provider configuration",
+    "global cli",
+    "standalone",
+  ])
+    if (normalizedSurface.includes(unrelatedDetail))
+      throw new Error(`installed skill leaks: ${unrelatedDetail}`);
+
+  const helperHelp = execFileSync(process.execPath, [helper, "--help"], {
+    encoding: "utf8",
+  });
+  for (const command of ["apply", "validate", "validate-all", "replay"])
+    if (!helperHelp.includes(command))
+      throw new Error(`installed skill is missing command: ${command}`);
+  for (const unrelatedCommand of ["doctor", "generate", "install-ci"])
+    if (helperHelp.includes(unrelatedCommand))
+      throw new Error(`installed skill exposes command: ${unrelatedCommand}`);
 
   const repository = join(temp, "repository");
   mkdirSync(repository);
@@ -78,12 +109,6 @@ try {
   );
 
   execFileSync(process.execPath, [helper, "--version"], { stdio: "ignore" });
-  execFileSync(
-    process.execPath,
-    [helper, "doctor", "--mode", "agent", "--repo-dir", repository],
-    { stdio: "ignore" },
-  );
-
   const preview = JSON.parse(
     execFileSync(
       process.execPath,
@@ -138,7 +163,7 @@ try {
       throw new Error(`${instructionFile} has no review-memory pointer`);
 
   console.log(
-    "installed skill works without the review-to-rule package or global CLI",
+    "installed skill preview, write, and validation passed in isolation",
   );
 } finally {
   rmSync(temp, { recursive: true, force: true });

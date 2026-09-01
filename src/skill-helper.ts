@@ -2,7 +2,7 @@ import { Command, CommanderError, Option } from "commander";
 import { createInterface } from "node:readline/promises";
 import { stdin, stderr as promptOutput } from "node:process";
 import { resolve } from "node:path";
-import { resolveCoreConfig } from "./memory-config.js";
+import { resolveCoreConfig } from "./memory-core-config.js";
 import {
   applyReviewMemoryBundle,
   errorOutcome,
@@ -10,7 +10,7 @@ import {
 } from "./memory-core.js";
 import { loadReviewMemoryBundle } from "./review-memory-bundle.js";
 import { renderHuman } from "./memory-render.js";
-import { ProcessCommandRunner } from "./utils/command.js";
+import { GitCommandRunner } from "./utils/command.js";
 import {
   ConfigurationError,
   DomainError,
@@ -22,7 +22,6 @@ import {
   validateAllMemory,
   validateMemoryArtifact,
 } from "./memory-validation.js";
-import { runDoctor } from "./memory-doctor.js";
 import { GENERATOR_VERSION } from "./version.js";
 
 interface CoreOptions {
@@ -38,7 +37,7 @@ interface CoreOptions {
   claudePath?: string;
 }
 
-const runner = new ProcessCommandRunner();
+const runner = new GitCommandRunner();
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -150,10 +149,8 @@ async function coreConfig(options: CoreOptions, cwd: string) {
 
 export function buildSkillHelperProgram(): Command {
   const program = new Command()
-    .name("review-to-rule-skill")
-    .description(
-      "Bundled deterministic helper for the review-to-rule agent skill.",
-    )
+    .name("review-to-rule-writer")
+    .description("Preview, write, and validate repository review rules.")
     .version(GENERATOR_VERSION)
     .exitOverride()
     .configureOutput({ writeErr: () => undefined });
@@ -161,7 +158,7 @@ export function buildSkillHelperProgram(): Command {
   addCoreOptions(
     program
       .command("apply")
-      .description("preview or write a provider-neutral review-memory bundle")
+      .description("preview or write a review-memory bundle")
       .argument("<bundle-path>", "version-2 review-memory bundle JSON")
       .option("--allow-open-review", "permit an unmerged code review")
       .option("--allow-unresolved", "permit an unresolved review thread"),
@@ -313,48 +310,6 @@ export function buildSkillHelperProgram(): Command {
       },
     );
 
-  program
-    .command("doctor")
-    .description("check the self-contained skill prerequisites")
-    .addOption(
-      new Option("--mode <mode>", "agent mode only")
-        .choices(["agent"])
-        .default("agent"),
-    )
-    .option("--repo-dir <path>")
-    .option("--config <path>")
-    .option("--json")
-    .action(
-      async (options: {
-        mode: "agent";
-        repoDir?: string;
-        config?: string;
-        json?: boolean;
-      }) => {
-        try {
-          const result = await runDoctor({
-            runner,
-            cwd: resolve(options.repoDir ?? process.cwd()),
-            ...(options.config ? { config: { config: options.config } } : {}),
-            mode: "agent",
-          });
-          process.stdout.write(
-            options.json
-              ? `${JSON.stringify(result)}\n`
-              : [
-                  ...result.checks.map(
-                    (check) =>
-                      `${check.status.toUpperCase()} ${check.name}: ${check.diagnostic}`,
-                  ),
-                  `Status: ${result.status}`,
-                ].join("\n") + "\n",
-          );
-          process.exitCode = result.status === "success" ? 0 : 4;
-        } catch (error) {
-          emitFailure(options, error, "Doctor");
-        }
-      },
-    );
   return program;
 }
 
@@ -363,7 +318,7 @@ const args = process.argv.slice(2);
 try {
   await buildSkillHelperProgram().parseAsync([
     "node",
-    "review-to-rule-skill",
+    "review-to-rule-writer",
     ...args,
   ]);
 } catch (error) {

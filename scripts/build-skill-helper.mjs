@@ -24,7 +24,6 @@ const result = await build({
   legalComments: "inline",
   banner: {
     js: [
-      "// Generated from src/skill-helper.ts. Do not edit by hand.",
       'import { createRequire as __createRequire } from "node:module";',
       "const require = __createRequire(import.meta.url);",
     ].join("\n"),

@@ -3,18 +3,19 @@ import { resolve } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 import { ConfigurationError } from "./domain/errors.js";
+import { policyTargetSchema, type PolicyTarget } from "./memory-core-config.js";
 import { redact } from "./security/redact.js";
 import { assertSafeExactPath } from "./security/path.js";
 
+export { policyTargetSchema, resolveCoreConfig } from "./memory-core-config.js";
+export type {
+  CoreConfig,
+  CoreConfigOverrides,
+  PolicyTarget,
+} from "./memory-core-config.js";
+
 export const providerNameSchema = z.enum(["openai", "anthropic", "fake"]);
 export type ProviderName = z.infer<typeof providerNameSchema>;
-export const policyTargetSchema = z.enum([
-  "agents",
-  "claude",
-  "both",
-  "neither",
-]);
-export type PolicyTarget = z.infer<typeof policyTargetSchema>;
 
 const urlSchema = z.url().refine((value) => {
   const protocol = new URL(value).protocol;
@@ -45,14 +46,6 @@ export type FileConfig = z.infer<typeof fileConfigSchema>;
 export interface ConfigOverrides extends Partial<Omit<FileConfig, "version">> {
   config?: string;
 }
-export interface CoreConfigOverrides {
-  config?: string;
-  outputDir?: string;
-  confidenceFloor?: number;
-  policyTarget?: PolicyTarget;
-  agentsPath?: string;
-  claudePath?: string;
-}
 export interface EffectiveConfig {
   provider: ProviderName;
   model: string;
@@ -67,35 +60,6 @@ export interface EffectiveConfig {
   claudePath?: string;
   configPath?: string;
 }
-export interface CoreConfig {
-  outputDir: string;
-  confidenceFloor: number;
-  policyTarget: PolicyTarget;
-  agentsPath?: string;
-  claudePath?: string;
-  configPath?: string;
-}
-
-const coreFileConfigSchema = fileConfigSchema.pick({
-  version: true,
-  outputDir: true,
-  confidenceFloor: true,
-  policyTarget: true,
-  agentsPath: true,
-  claudePath: true,
-});
-type CoreFileConfig = z.infer<typeof coreFileConfigSchema>;
-
-const coreEnvelopeSchema = coreFileConfigSchema
-  .extend({
-    provider: z.unknown().optional(),
-    model: z.unknown().optional(),
-    baseUrl: z.unknown().optional(),
-    contextLines: z.unknown().optional(),
-    branchPrefix: z.unknown().optional(),
-    labels: z.unknown().optional(),
-  })
-  .strict();
 
 const defaults = {
   openai: { model: "gpt-5-mini", baseUrl: "https://api.openai.com/v1" },
@@ -129,28 +93,6 @@ async function loadConfig(path: string): Promise<FileConfig> {
   } catch (error) {
     throw new ConfigurationError(
       `Invalid configuration ${path}: ${redact(error instanceof Error ? error.message : String(error))}`,
-    );
-  }
-}
-
-async function loadCoreConfig(path: string): Promise<CoreFileConfig> {
-  try {
-    const envelope = coreEnvelopeSchema.parse(
-      parse(await readFile(path, "utf8")),
-    );
-    return coreFileConfigSchema.parse({
-      version: envelope.version,
-      ...(envelope.outputDir ? { outputDir: envelope.outputDir } : {}),
-      ...(envelope.confidenceFloor !== undefined
-        ? { confidenceFloor: envelope.confidenceFloor }
-        : {}),
-      ...(envelope.policyTarget ? { policyTarget: envelope.policyTarget } : {}),
-      ...(envelope.agentsPath ? { agentsPath: envelope.agentsPath } : {}),
-      ...(envelope.claudePath ? { claudePath: envelope.claudePath } : {}),
-    });
-  } catch (error) {
-    throw new ConfigurationError(
-      `Invalid core configuration ${path}: ${redact(error instanceof Error ? error.message : String(error))}`,
     );
   }
 }
@@ -271,52 +213,6 @@ export async function resolveConfig(
     contextLines: merged.contextLines ?? 3,
     branchPrefix: merged.branchPrefix ?? "review-to-rule/",
     labels: merged.labels ?? ["review-memory"],
-    policyTarget: merged.policyTarget ?? "neither",
-    ...(merged.agentsPath ? { agentsPath: merged.agentsPath } : {}),
-    ...(merged.claudePath ? { claudePath: merged.claudePath } : {}),
-    ...(file ? { configPath } : {}),
-  };
-  validatePaths({
-    outputDir: effective.outputDir,
-    ...(effective.agentsPath ? { agentsPath: effective.agentsPath } : {}),
-    ...(effective.claudePath ? { claudePath: effective.claudePath } : {}),
-  });
-  return effective;
-}
-
-export async function resolveCoreConfig(
-  cli: CoreConfigOverrides,
-  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
-): Promise<CoreConfig> {
-  const cwd = options.cwd ?? process.cwd();
-  const env = options.env ?? process.env;
-  const configPath = resolve(cwd, cli.config ?? ".review-to-rule.yml");
-  const file = await optionalConfig({
-    path: configPath,
-    explicit: Boolean(cli.config),
-    read: loadCoreConfig,
-  });
-  const environment = envConfig(env);
-  const merged = {
-    ...(environment.outputDir ? { outputDir: environment.outputDir } : {}),
-    ...(environment.confidenceFloor !== undefined
-      ? { confidenceFloor: environment.confidenceFloor }
-      : {}),
-    ...(environment.policyTarget
-      ? { policyTarget: environment.policyTarget }
-      : {}),
-    ...(environment.agentsPath ? { agentsPath: environment.agentsPath } : {}),
-    ...(environment.claudePath ? { claudePath: environment.claudePath } : {}),
-    ...file,
-    ...Object.fromEntries(
-      Object.entries(cli).filter(
-        ([key, value]) => key !== "config" && value !== undefined,
-      ),
-    ),
-  };
-  const effective: CoreConfig = {
-    outputDir: merged.outputDir ?? ".review-to-rule",
-    confidenceFloor: merged.confidenceFloor ?? 0.8,
     policyTarget: merged.policyTarget ?? "neither",
     ...(merged.agentsPath ? { agentsPath: merged.agentsPath } : {}),
     ...(merged.claudePath ? { claudePath: merged.claudePath } : {}),

@@ -13,7 +13,7 @@ import {
   inspectContainedPathNoFollow,
 } from "./security/path.js";
 import type { CommandRunner } from "./utils/command.js";
-import type { PolicyTarget } from "./memory-config.js";
+import type { PolicyTarget } from "./memory-core-config.js";
 
 export const MANAGED_START = "<!-- review-to-rule:managed:start -->";
 export const MANAGED_END = "<!-- review-to-rule:managed:end -->";

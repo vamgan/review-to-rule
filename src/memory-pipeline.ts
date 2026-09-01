@@ -19,7 +19,7 @@ import { ProcessCommandRunner, type CommandRunner } from "./utils/command.js";
 import { redact } from "./security/redact.js";
 import { GhGitHubClient } from "./github/client.js";
 import { readHistoricalContent, resolveRepository } from "./repository.js";
-import type { PolicyTarget } from "./memory-config.js";
+import type { PolicyTarget } from "./memory-core-config.js";
 import {
   applyReviewMemoryBundle,
   errorOutcome,
