@@ -5,7 +5,7 @@
 <br>
 
 [![GitHub stars](https://img.shields.io/github/stars/vamgan/review-to-rule?style=flat-square&color=58a6ff)](https://github.com/vamgan/review-to-rule/stargazers)
-[![npm](https://img.shields.io/npm/v/review-to-rule?style=flat-square&color=cb3837&logo=npm)](https://www.npmjs.com/package/review-to-rule)
+[![npm latest](https://img.shields.io/npm/v/review-to-rule?style=flat-square&color=cb3837&logo=npm&label=npm&cacheSeconds=300)](https://www.npmjs.com/package/review-to-rule)
 [![CI](https://github.com/vamgan/review-to-rule/actions/workflows/ci.yml/badge.svg)](https://github.com/vamgan/review-to-rule/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-4c6fff.svg)](LICENSE)
 
