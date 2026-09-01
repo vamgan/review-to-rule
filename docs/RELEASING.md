@@ -8,7 +8,8 @@ npm publishing workflow automatically.
 1. Configure the npm trusted publisher for `vamgan/review-to-rule`:
    - provider: GitHub Actions
    - repository: `vamgan/review-to-rule`
-   - workflow: `publish.yml`
+   - workflow: `publish_release.yml`
+   - environment: leave blank
    - allowed action: `npm publish`
 2. Verify the trust relationship with `npm trust list review-to-rule`.
 3. Revoke any bootstrap publishing token. CI must not contain an npm token.
@@ -24,12 +25,13 @@ npm publishing workflow automatically.
 5. Verify the tarball excludes credentials, `.git`, `.harness`, journals,
    temporary files, tests, and local artifact output.
 6. Merge the version pull request after the required `release-gate` check.
-7. Watch the automatically triggered `Publish` workflow.
+7. Watch `tag / auto` create `vX.Y.Z` and dispatch `publish / release` and
+   `release / github`.
 8. Verify the new npm `latest` version, provenance, Git tag, and GitHub release.
 
-The workflow compares the merged package version with the previous `main`
-revision. When the version changed, it verifies that every release surface has
-the same version, runs the complete release gate, and publishes from a
-GitHub-hosted runner using short-lived npm OIDC credentials. After npm succeeds,
-it creates the matching `vX.Y.Z` Git tag and GitHub release. It holds no
-long-lived npm token.
+`tag.yml` compares the merged package version with the previous `main` revision.
+When the version changed, it pushes the matching tag and explicitly dispatches
+the publishing and GitHub Release workflows. `publish_release.yml` verifies
+that every release surface has the same version, runs the complete release
+gate, and publishes from a GitHub-hosted runner using short-lived npm OIDC
+credentials. The workflows hold no long-lived npm token.
