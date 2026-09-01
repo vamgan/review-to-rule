@@ -1,6 +1,6 @@
 {
   "name": "review-to-rule",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Turn accepted code-review feedback into durable repository memory for coding agents.",
   "type": "module",
   "license": "MIT",
