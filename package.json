@@ -1,0 +1,80 @@
+{
+  "name": "review-to-rule",
+  "version": "0.3.0",
+  "description": "Turn accepted code-review feedback into durable repository memory for coding agents.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vamgan/review-to-rule.git"
+  },
+  "homepage": "https://github.com/vamgan/review-to-rule#readme",
+  "bugs": {
+    "url": "https://github.com/vamgan/review-to-rule/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "keywords": [
+    "code-review",
+    "agent-memory",
+    "repository-rules",
+    "cli",
+    "coding-agents",
+    "gitlab",
+    "github"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "review-to-rule": "dist/cli-v2.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./core": "./dist/core-entry.js"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "docs",
+    ".agents/skills/review-to-rule-write",
+    "README.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/set-bin-mode.mjs",
+    "prepare": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "format:check": "prettier --check .",
+    "test": "vitest run tests/v2 tests/integration/github-live.test.ts tests/unit/command.test.ts tests/unit/github-client.test.ts tests/unit/reconstruct.test.ts tests/unit/url-language.test.ts",
+    "test:unit": "vitest run tests/v2/policy-provider.test.ts tests/v2/security.test.ts",
+    "test:integration": "vitest run tests/v2/core.test.ts",
+    "test:e2e": "npm run test:smoke",
+    "test:smoke": "npm run build && node scripts/package-smoke-v2.mjs",
+    "test:ci-bootstrap": "npm run build --silent && node scripts/verify-ci-bootstrap-v2.mjs",
+    "validate": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:smoke",
+    "release:check": "npm run format:check && npm run typecheck && npm run lint && npm test && npm run build && npm run test:smoke && npm run test:ci-bootstrap"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "commander": "^14.0.1",
+    "openai": "^7.8.0",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.34.0",
+    "@types/node": "^24.3.0",
+    "eslint": "^9.34.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.41.0",
+    "vitest": "^3.2.4"
+  }
+}
