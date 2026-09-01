@@ -14,3 +14,6 @@ npm run release:check
 
 Use conventional, meaningful commits. By contributing, you agree to follow the
 [Code of Conduct](CODE_OF_CONDUCT.md).
+
+Do not mix a package version change into a feature or fix. Maintainers release
+from a dedicated version-only pull request after the product change has landed.
