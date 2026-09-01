@@ -279,7 +279,11 @@ export async function generate(
     let repositoryDir = options.repositoryDir
       ? resolve(options.repositoryDir)
       : undefined;
-    let repositorySource = repositoryDir ? "explicit" : "fixture";
+    let repositorySource = fixtureName
+      ? "fixture"
+      : repositoryDir
+        ? "explicit"
+        : "fixture";
     let reconstructed: ReturnType<typeof reconstruct>;
     let validationFixtures: {
       before: string;

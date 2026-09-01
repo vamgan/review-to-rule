@@ -31,7 +31,12 @@ describe("bounded repair", () => {
     const runner = new AlwaysFailRunner();
     const outcome = await generate(
       "https://github.com/acme/clock/pull/42#discussion_r1001",
-      { fixture: "typescript-injected-clock", provider, runner },
+      {
+        fixture: "typescript-injected-clock",
+        provider,
+        runner,
+        repositoryDir: process.cwd(),
+      },
     );
     expect(outcome.exitCode).toBe(3);
     expect(provider.calls).toEqual([

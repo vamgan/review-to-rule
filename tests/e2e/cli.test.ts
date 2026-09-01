@@ -118,10 +118,13 @@ describe("built public CLI", () => {
         "injected-clock",
         "--json",
       ]);
-      expect(explicit.status).toBe(0);
-      expect(alias.status).toBe(0);
-      expect(JSON.parse(explicit.stdout)).toEqual(JSON.parse(alias.stdout));
-      generationResultSchema.parse(JSON.parse(explicit.stdout));
+      expect(explicit.status, explicit.stderr || explicit.stdout).toBe(0);
+      expect(alias.status, alias.stderr || alias.stdout).toBe(0);
+      const explicitResult = generationResultSchema.parse(
+        JSON.parse(explicit.stdout),
+      );
+      expect(explicitResult).toEqual(JSON.parse(alias.stdout));
+      expect(explicitResult.repository?.source).toBe("fixture");
       const human = await run([
         "generate",
         review,
